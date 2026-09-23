@@ -1,0 +1,55 @@
+#!/bin/bash
+set -e
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="$PROJECT_DIR/build"
+APP_NAME="GeminiQuotaBar.app"
+APP_BUNDLE="$BUILD_DIR/$APP_NAME"
+MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
+RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
+
+echo "==> Limpiando directorio de compilación..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$MACOS_DIR"
+mkdir -p "$RESOURCES_DIR"
+
+echo "==> Compilando código Swift..."
+swiftc \
+    -O \
+    -target arm64-apple-macosx13.0 \
+    -framework Cocoa \
+    "$PROJECT_DIR/Sources/QuotaFetcher.swift" \
+    "$PROJECT_DIR/Sources/AppDelegate.swift" \
+    "$PROJECT_DIR/Sources/main.swift" \
+    -o "$MACOS_DIR/GeminiQuotaBar"
+
+echo "==> Creando Info.plist..."
+cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>GeminiQuotaBar</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.antigravity.geminiquotabar</string>
+    <key>CFBundleName</key>
+    <string>Gemini Quota Bar</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+echo "==> Firmando la aplicación con firma ad-hoc..."
+codesign --force --deep --sign - "$APP_BUNDLE"
+
+echo "==> Compilación finalizada con éxito en: $APP_BUNDLE"
