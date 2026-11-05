@@ -3,19 +3,21 @@
 Aplicación nativa para la barra de menús de macOS (Menu Bar / Status Bar) que muestra en tiempo real, junto al reloj de tu Mac, los porcentajes restantes de cuota de **Google Antigravity**:
 - **Gemini 5-Hour Limit Remaining** (Ventana de 5 horas)
 - **Gemini Weekly Limit Remaining** (Límite semanal)
-- **Claude & GPT Models Quota** (Estado y tiempo de desbloqueo)
+- **Claude & GPT Models Quota** (Ventana de 5 horas y ciclo semanal)
+- **Gemini 4 Argon Quota** (Nuevo modelo frontera con cuota semanal independiente)
 
 ---
 
 ## ✨ Características
 
 - **Ultra ligero y nativo**: Escrito en Swift con Cocoa / AppKit (sin Electron, sin dependencias pesadas).
-- **Directo a la fuente**: Consulta directamente el servidor de lenguaje local de Antigravity (`language_server_macos_arm`) vía Connect-RPC seguro en milisegundos.
+- **Directo a la fuente**: Detecta dinámicamente los daemons locales de Antigravity (`agy` o `language_server`) vía Connect-RPC en milisegundos con soporte HTTP/HTTPS y tokens CSRF.
 - **Visualización en la barra**:
-  - `♊ 5h: 94% · Sem: 98%` (o en 6 estilos configurables).
+  - `♊ 5h: 78% (1h 28m) · Sem: 38% (2d 2h)` (o en 10 estilos configurables con o sin cuenta regresiva).
 - **Menú interactivo desplegable**:
+  - Agrupación dinámica de modelos: **Google Gemini**, **Claude and GPT**, y **Gemini 4 Argon**.
   - Indicadores de salud con emojis de colores (🟢 > 50%, 🟡 20-50%, 🔴 < 20%).
-  - Tiempos exactos de renovación de cada cuota.
+  - **Cuenta regresiva exacta de reset**: Muestra los días y horas restantes en cada métrica (ej. `⏳ 2d 2h`) y fecha/hora exacta (`Reset: en 2 días, 2 horas (sáb 7 nov, 01:31)`).
   - Botón de refresco manual (`⌘R`).
   - Frecuencia de actualización configurable (30s, 1m, 5m).
   - Opción de inicio automático al encender la Mac.

@@ -1,36 +1,145 @@
 import Cocoa
 
 enum DisplayFormat: Int {
-    case standard = 0      // ♊ 5h: 97% · Sem: 100%
-    case descriptive = 1   // Gemini: 97% (5h) · 100% (Sem)
-    case compact = 2       // ♊ 97% | 100%
-    case icons = 3         // ⚡97% · 📅100%
-    case fiveHourOnly = 4  // ♊ 5h: 97%
-    case weeklyOnly = 5    // ♊ Sem: 100%
+    case standardWithTime = 0 // ♊ 5h: 78% (1h 28m) · Sem: 38% (2d 2h)
+    case standard = 1         // ♊ 5h: 78% · Sem: 38%
+    case compactWithTime = 2  // ♊ 78% (1h) | 38% (2d)
+    case compact = 3          // ♊ 78% | 38%
+    case icons = 4            // ⚡78% · 📅38% (2d 2h)
+    case weeklyOnly = 5       // ♊ Sem: 38% · ⏳ 2d 2h
+    case fiveHourOnly = 6     // ♊ 5h: 78% · ⏳ 1h 28m
+    case argonOnly = 7        // 🪐 Argon: 1% · ⏳ 5d 17h
+    case lowest = 8           // ⚠️ Mín: 1% (5d 17h)
+    case descriptive = 9      // Gemini: 78% (5h) · 38% (Sem)
     
-    func format(fiveHour: Int, weekly: Int) -> String {
+    func format(quota: GeminiQuota) -> String {
+        let fiveHourCd = formatShortCountdown(from: quota.fiveHourResetTime)
+        let weeklyCd = formatShortCountdown(from: quota.weeklyResetTime)
+        let argonCd = formatShortCountdown(from: quota.argonResetTime ?? "")
+        
         switch self {
+        case .standardWithTime:
+            let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
+            let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
+            return "♊ 5h: \(quota.fiveHourPercent)%\(hStr) · Sem: \(quota.weeklyPercent)%\(wStr)"
         case .standard:
-            return "♊ 5h: \(fiveHour)% · Sem: \(weekly)%"
-        case .descriptive:
-            return "Gemini: \(fiveHour)% (5h) · \(weekly)% (Sem)"
+            return "♊ 5h: \(quota.fiveHourPercent)% · Sem: \(quota.weeklyPercent)%"
+        case .compactWithTime:
+            let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
+            let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
+            return "♊ \(quota.fiveHourPercent)%\(hStr) | \(quota.weeklyPercent)%\(wStr)"
         case .compact:
-            return "♊ \(fiveHour)% | \(weekly)%"
+            return "♊ \(quota.fiveHourPercent)% | \(quota.weeklyPercent)%"
         case .icons:
-            return "⚡\(fiveHour)% · 📅\(weekly)%"
-        case .fiveHourOnly:
-            return "♊ 5h: \(fiveHour)%"
+            let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
+            return "⚡\(quota.fiveHourPercent)% · 📅\(quota.weeklyPercent)%\(wStr)"
         case .weeklyOnly:
-            return "♊ Sem: \(weekly)%"
+            let wStr = weeklyCd.isEmpty ? "" : " · ⏳ \(weeklyCd)"
+            return "♊ Sem: \(quota.weeklyPercent)%\(wStr)"
+        case .fiveHourOnly:
+            let hStr = fiveHourCd.isEmpty ? "" : " · ⏳ \(fiveHourCd)"
+            return "♊ 5h: \(quota.fiveHourPercent)%\(hStr)"
+        case .argonOnly:
+            if let argon = quota.argonWeeklyPercent {
+                let aStr = argonCd.isEmpty ? "" : " · ⏳ \(argonCd)"
+                return "🪐 Argon: \(argon)%\(aStr)"
+            } else {
+                let wStr = weeklyCd.isEmpty ? "" : " · ⏳ \(weeklyCd)"
+                return "♊ Sem: \(quota.weeklyPercent)%\(wStr)"
+            }
+        case .lowest:
+            var minP = min(quota.fiveHourPercent, quota.weeklyPercent)
+            var cd = (quota.fiveHourPercent <= quota.weeklyPercent) ? fiveHourCd : weeklyCd
+            if let a = quota.argonWeeklyPercent, a < minP {
+                minP = a
+                cd = argonCd
+            }
+            if let c = quota.claudeWeeklyPercent, c < minP {
+                minP = c
+            }
+            let cdStr = cd.isEmpty ? "" : " (\(cd))"
+            return "⚠️ Mín: \(minP)%\(cdStr)"
+        case .descriptive:
+            return "Gemini: \(quota.fiveHourPercent)% (5h) · \(quota.weeklyPercent)% (Sem)"
         }
     }
+}
+
+func formatShortCountdown(from isoString: String) -> String {
+    guard !isoString.isEmpty else { return "" }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var date = formatter.date(from: isoString)
+    if date == nil {
+        formatter.formatOptions = [.withInternetDateTime]
+        date = formatter.date(from: isoString)
+    }
+    guard let targetDate = date else { return "" }
+    
+    let diff = targetDate.timeIntervalSince(Date())
+    if diff <= 0 { return "0h" }
+    
+    let totalMinutes = Int(diff) / 60
+    let days = totalMinutes / (24 * 60)
+    let hours = (totalMinutes % (24 * 60)) / 60
+    let minutes = totalMinutes % 60
+    
+    if days > 0 {
+        return "\(days)d \(hours)h"
+    } else if hours > 0 {
+        return "\(hours)h \(minutes)m"
+    } else {
+        return "\(minutes)m"
+    }
+}
+
+func formatFullCountdown(from isoString: String) -> (short: String, detailed: String, absolute: String)? {
+    guard !isoString.isEmpty else { return nil }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var date = formatter.date(from: isoString)
+    if date == nil {
+        formatter.formatOptions = [.withInternetDateTime]
+        date = formatter.date(from: isoString)
+    }
+    guard let targetDate = date else { return nil }
+    
+    let diff = targetDate.timeIntervalSince(Date())
+    if diff <= 0 {
+        return (short: "0h", detailed: "Inminente", absolute: "Ahora")
+    }
+    
+    let totalMinutes = Int(diff) / 60
+    let days = totalMinutes / (24 * 60)
+    let hours = (totalMinutes % (24 * 60)) / 60
+    let minutes = totalMinutes % 60
+    
+    let short: String
+    let detailed: String
+    if days > 0 {
+        short = "\(days)d \(hours)h"
+        detailed = "\(days) día\(days == 1 ? "" : "s"), \(hours) hora\(hours == 1 ? "" : "s")"
+    } else if hours > 0 {
+        short = "\(hours)h \(minutes)m"
+        detailed = "\(hours) hora\(hours == 1 ? "" : "s"), \(minutes) min"
+    } else {
+        short = "\(minutes)m"
+        detailed = "\(minutes) minuto\(minutes == 1 ? "" : "s")"
+    }
+    
+    let timeFormatter = DateFormatter()
+    timeFormatter.locale = Locale(identifier: "es_ES")
+    timeFormatter.dateFormat = "EEE d MMM, HH:mm"
+    let absolute = timeFormatter.string(from: targetDate)
+    
+    return (short: short, detailed: detailed, absolute: absolute)
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
     var refreshInterval: TimeInterval = 60.0 // 1 minute default
-    var currentFormat: DisplayFormat = .standard
+    var currentFormat: DisplayFormat = .standardWithTime
     var latestQuota: GeminiQuota?
     var isFetching = false
     
@@ -49,8 +158,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let savedLast5h = UserDefaults.standard.value(forKey: "Last5h") as? Int,
            let savedLastWk = UserDefaults.standard.value(forKey: "LastWeekly") as? Int {
+            var cached = GeminiQuota()
+            cached.fiveHourPercent = savedLast5h
+            cached.weeklyPercent = savedLastWk
+            cached.fiveHourResetTime = UserDefaults.standard.string(forKey: "Last5hReset") ?? ""
+            cached.weeklyResetTime = UserDefaults.standard.string(forKey: "LastWeeklyReset") ?? ""
+            if let savedArgon = UserDefaults.standard.value(forKey: "LastArgon") as? Int {
+                cached.argonWeeklyPercent = savedArgon
+                cached.argonResetTime = UserDefaults.standard.string(forKey: "LastArgonReset")
+            }
             if let button = statusItem.button {
-                button.title = currentFormat.format(fiveHour: savedLast5h, weekly: savedLastWk)
+                button.title = currentFormat.format(quota: cached)
             }
         } else if let button = statusItem.button {
             button.title = "♊ Conectando..."
@@ -82,6 +200,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // Cache last values so they show instantly on next reboot
                 UserDefaults.standard.setValue(quota.fiveHourPercent, forKey: "Last5h")
                 UserDefaults.standard.setValue(quota.weeklyPercent, forKey: "LastWeekly")
+                UserDefaults.standard.setValue(quota.fiveHourResetTime, forKey: "Last5hReset")
+                UserDefaults.standard.setValue(quota.weeklyResetTime, forKey: "LastWeeklyReset")
+                if let argon = quota.argonWeeklyPercent {
+                    UserDefaults.standard.setValue(argon, forKey: "LastArgon")
+                    UserDefaults.standard.setValue(quota.argonResetTime, forKey: "LastArgonReset")
+                }
                 self.updateStatusBarTitle(quota: quota)
                 self.buildMenu()
                 self.startTimer(interval: self.refreshInterval)
@@ -92,7 +216,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     self.buildErrorMenu(error: error.localizedDescription)
                 }
-                // When disconnected, retry more frequently (every 5 seconds) until Antigravity starts
                 self.startTimer(interval: 5.0)
             }
         }
@@ -100,7 +223,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func updateStatusBarTitle(quota: GeminiQuota) {
         guard let button = statusItem.button else { return }
-        button.title = currentFormat.format(fiveHour: quota.fiveHourPercent, weekly: quota.weeklyPercent)
+        button.title = currentFormat.format(quota: quota)
     }
     
     func getStatusEmoji(percent: Int) -> String {
@@ -113,105 +236,128 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         
         if let quota = latestQuota {
-            // Header
-            let headerItem = NSMenuItem(title: "Google Gemini Quota", action: nil, keyEquivalent: "")
-            headerItem.attributedTitle = NSAttributedString(
-                string: "♊ Google Gemini Quota",
-                attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
-            )
-            menu.addItem(headerItem)
-            menu.addItem(NSMenuItem.separator())
-            
-            // 5-Hour Limit
-            let fiveHourItem = NSMenuItem(
-                title: "\(getStatusEmoji(percent: quota.fiveHourPercent)) Límite 5 Horas: \(quota.fiveHourPercent)%",
-                action: nil,
-                keyEquivalent: ""
-            )
-            fiveHourItem.attributedTitle = NSAttributedString(
-                string: "\(getStatusEmoji(percent: quota.fiveHourPercent)) Límite 5 Horas: \(quota.fiveHourPercent)%",
-                attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]
-            )
-            menu.addItem(fiveHourItem)
-            
-            if !quota.fiveHourDescription.isEmpty {
-                let descItem = NSMenuItem(title: "    " + quota.fiveHourDescription, action: nil, keyEquivalent: "")
-                descItem.attributedTitle = NSAttributedString(
-                    string: "    " + quota.fiveHourDescription,
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 11),
-                        .foregroundColor: NSColor.secondaryLabelColor
-                    ]
-                )
-                menu.addItem(descItem)
-            }
-            
-            menu.addItem(NSMenuItem.separator())
-            
-            // Weekly Limit
-            let weeklyItem = NSMenuItem(
-                title: "\(getStatusEmoji(percent: quota.weeklyPercent)) Límite Semanal: \(quota.weeklyPercent)%",
-                action: nil,
-                keyEquivalent: ""
-            )
-            weeklyItem.attributedTitle = NSAttributedString(
-                string: "\(getStatusEmoji(percent: quota.weeklyPercent)) Límite Semanal: \(quota.weeklyPercent)%",
-                attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]
-            )
-            menu.addItem(weeklyItem)
-            
-            if !quota.weeklyDescription.isEmpty {
-                let descItem = NSMenuItem(title: "    " + quota.weeklyDescription, action: nil, keyEquivalent: "")
-                descItem.attributedTitle = NSAttributedString(
-                    string: "    " + quota.weeklyDescription,
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 11),
-                        .foregroundColor: NSColor.secondaryLabelColor
-                    ]
-                )
-                menu.addItem(descItem)
-            }
-            
-            // Claude info if available
-            if let claudeW = quota.claudeWeeklyPercent {
-                menu.addItem(NSMenuItem.separator())
-                let claudeHeader = NSMenuItem(title: "Otros Modelos (Claude / GPT)", action: nil, keyEquivalent: "")
-                claudeHeader.attributedTitle = NSAttributedString(
-                    string: "🤖 Claude & GPT: \(claudeW)% restante",
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                        .foregroundColor: NSColor.secondaryLabelColor
-                    ]
-                )
-                menu.addItem(claudeHeader)
-                if let claudeDesc = quota.claudeWeeklyDescription, !claudeDesc.isEmpty {
-                    let cDescItem = NSMenuItem(title: "    " + claudeDesc, action: nil, keyEquivalent: "")
-                    cDescItem.attributedTitle = NSAttributedString(
-                        string: "    " + claudeDesc,
-                        attributes: [
-                            .font: NSFont.systemFont(ofSize: 10),
-                            .foregroundColor: NSColor.tertiaryLabelColor
-                        ]
+            if !quota.allGroups.isEmpty {
+                for group in quota.allGroups {
+                    var icon = "✨ "
+                    if group.displayName.contains("Argon") {
+                        icon = "🪐 "
+                    } else if group.displayName.contains("Gemini") {
+                        icon = "♊ "
+                    } else if group.displayName.contains("Claude") || group.displayName.contains("GPT") {
+                        icon = "🤖 "
+                    }
+                    
+                    let headerItem = NSMenuItem(title: "\(icon)\(group.displayName)", action: nil, keyEquivalent: "")
+                    headerItem.attributedTitle = NSAttributedString(
+                        string: "\(icon)\(group.displayName)",
+                        attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
                     )
-                    menu.addItem(cDescItem)
+                    menu.addItem(headerItem)
+                    
+                    if !group.description.isEmpty {
+                        let descItem = NSMenuItem(title: "    " + group.description, action: nil, keyEquivalent: "")
+                        descItem.attributedTitle = NSAttributedString(
+                            string: "    " + group.description,
+                            attributes: [
+                                .font: NSFont.systemFont(ofSize: 10),
+                                .foregroundColor: NSColor.secondaryLabelColor
+                            ]
+                        )
+                        menu.addItem(descItem)
+                    }
+                    
+                    for bucket in group.buckets {
+                        let emoji = getStatusEmoji(percent: bucket.percent)
+                        let countdown = formatFullCountdown(from: bucket.resetTime)
+                        
+                        var itemTitle = "\(emoji) \(bucket.displayName): \(bucket.percent)%"
+                        if let cd = countdown {
+                            itemTitle += "  ⏳ \(cd.short)"
+                        }
+                        
+                        let bucketItem = NSMenuItem(
+                            title: itemTitle,
+                            action: nil,
+                            keyEquivalent: ""
+                        )
+                        bucketItem.attributedTitle = NSAttributedString(
+                            string: itemTitle,
+                            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]
+                        )
+                        menu.addItem(bucketItem)
+                        
+                        // Exact countdown detail line: days and hours
+                        if let cd = countdown {
+                            let resetDetail = "      ⏳ Reset: en \(cd.detailed)  (\(cd.absolute))"
+                            let detailItem = NSMenuItem(title: resetDetail, action: nil, keyEquivalent: "")
+                            detailItem.attributedTitle = NSAttributedString(
+                                string: resetDetail,
+                                attributes: [
+                                    .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                                    .foregroundColor: NSColor.systemBlue
+                                ]
+                            )
+                            menu.addItem(detailItem)
+                        } else if !bucket.description.isEmpty {
+                            let descItem = NSMenuItem(title: "      " + bucket.description, action: nil, keyEquivalent: "")
+                            descItem.attributedTitle = NSAttributedString(
+                                string: "      " + bucket.description,
+                                attributes: [
+                                    .font: NSFont.systemFont(ofSize: 10),
+                                    .foregroundColor: NSColor.secondaryLabelColor
+                                ]
+                            )
+                            menu.addItem(descItem)
+                        }
+                    }
+                    
+                    menu.addItem(NSMenuItem.separator())
                 }
+            } else {
+                // Fallback rendering
+                let headerItem = NSMenuItem(title: "♊ Google Gemini Quota", action: nil, keyEquivalent: "")
+                headerItem.attributedTitle = NSAttributedString(
+                    string: "♊ Google Gemini Quota",
+                    attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
+                )
+                menu.addItem(headerItem)
+                menu.addItem(NSMenuItem.separator())
+                
+                let cd5h = formatFullCountdown(from: quota.fiveHourResetTime)
+                var title5h = "\(getStatusEmoji(percent: quota.fiveHourPercent)) Límite 5 Horas: \(quota.fiveHourPercent)%"
+                if let cd = cd5h { title5h += "  ⏳ \(cd.short)" }
+                menu.addItem(NSMenuItem(title: title5h, action: nil, keyEquivalent: ""))
+                if let cd = cd5h {
+                    menu.addItem(NSMenuItem(title: "      ⏳ Reset: en \(cd.detailed)", action: nil, keyEquivalent: ""))
+                }
+                
+                let cdWk = formatFullCountdown(from: quota.weeklyResetTime)
+                var titleWk = "\(getStatusEmoji(percent: quota.weeklyPercent)) Límite Semanal: \(quota.weeklyPercent)%"
+                if let cd = cdWk { titleWk += "  ⏳ \(cd.short)" }
+                menu.addItem(NSMenuItem(title: titleWk, action: nil, keyEquivalent: ""))
+                if let cd = cdWk {
+                    menu.addItem(NSMenuItem(title: "      ⏳ Reset: en \(cd.detailed)", action: nil, keyEquivalent: ""))
+                }
+                menu.addItem(NSMenuItem.separator())
             }
-            
         } else {
             menu.addItem(NSMenuItem(title: "Cargando información de cuota...", action: nil, keyEquivalent: ""))
+            menu.addItem(NSMenuItem.separator())
         }
-        
-        menu.addItem(NSMenuItem.separator())
         
         // Format submenu
         let formatMenu = NSMenu()
         let formats: [(DisplayFormat, String)] = [
-            (.standard, "♊ 5h: 97% · Sem: 100% (Recomendado)"),
-            (.descriptive, "Gemini: 97% (5h) · 100% (Sem)"),
-            (.compact, "♊ 97% | 100%"),
-            (.icons, "⚡97% · 📅100%"),
-            (.fiveHourOnly, "♊ 5h: 97% (Solo 5 horas)"),
-            (.weeklyOnly, "♊ Sem: 100% (Solo Semanal)")
+            (.standardWithTime, "♊ 5h: 78% (1h 28m) · Sem: 38% (2d 2h)  [Recomendado]"),
+            (.standard, "♊ 5h: 78% · Sem: 38%  [Solo porcentajes]"),
+            (.compactWithTime, "♊ 78% (1h) | 38% (2d)  [Compacto con tiempo]"),
+            (.compact, "♊ 78% | 38%  [Compacto simple]"),
+            (.icons, "⚡78% · 📅38% (2d)  [Iconos]"),
+            (.weeklyOnly, "♊ Sem: 38% · ⏳ 2d 2h  [Solo Semanal]"),
+            (.fiveHourOnly, "♊ 5h: 78% · ⏳ 1h 28m  [Solo 5 Horas]"),
+            (.argonOnly, "🪐 Argon: 1% · ⏳ 5d 17h  [Gemini 4 Argon]"),
+            (.lowest, "⚠️ Mín: 1% (5d 17h)  [Mínimo de todos]"),
+            (.descriptive, "Gemini: 78% (5h) · 38% (Sem)")
         ]
         
         for (fmt, title) in formats {

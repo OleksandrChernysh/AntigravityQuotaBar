@@ -14,8 +14,10 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 echo "==> Compilando código Swift..."
+mkdir -p /tmp/module-cache
 swiftc \
     -O \
+    -module-cache-path /tmp/module-cache \
     -target arm64-apple-macosx13.0 \
     -framework Cocoa \
     "$PROJECT_DIR/Sources/QuotaFetcher.swift" \
