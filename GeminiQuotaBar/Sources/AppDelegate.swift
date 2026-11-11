@@ -379,9 +379,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let cd = countdown {
             itemTitle += "  ·  \(cd.short)"
         }
-        // Colored dot = health indicator (green > 50%, yellow 20–50%, red < 20%)
+        // Colored dot = warning indicator, shown only when quota is low
+        // (yellow 20–50%, red < 20%); healthy rows (>= 50%) get no dot.
         menu.addItem(makeItem(itemTitle,
-                              icon: .sf("circle.fill"),
+                              icon: percent >= 50 ? nil : .sf("circle.fill"),
                               symbolColor: healthColor(percent: percent),
                               symbolSize: 9,
                               indent: 1,
@@ -435,7 +436,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !models.isEmpty {
             title.append(NSAttributedString(
                 string: " (\(models))",
-                attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]
+                attributes: [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.labelColor]
             ))
         }
         item.attributedTitle = title
