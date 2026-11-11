@@ -356,6 +356,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         if let icon = icon {
             item.image = iconImage(icon, size: symbolSize, color: symbolColor)
+            // macOS 27+ hides menu item images by default; opt in explicitly.
+            if #available(macOS 27.0, *) {
+                item.preferredImageVisibility = .visible
+            }
         }
         if let attrs = attributes {
             item.attributedTitle = NSAttributedString(string: title, attributes: attrs)
@@ -402,6 +406,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Group header: bold name followed by its model list in parentheses,
+    /// e.g. "Gemini Models (Gemini Flash, Gemini Pro)".
+    func makeGroupHeader(_ group: ModelGroupInfo) -> NSMenuItem {
+        // "Claude and GPT models" -> "Claude and GPT Models"
+        var name = group.displayName
+        if name.hasSuffix(" models") {
+            name = String(name.dropLast(" models".count)) + " Models"
+        }
+
+        // "Models within this group: Gemini Flash, Gemini Pro" -> "Gemini Flash, Gemini Pro".
+        // The Argon description is a plan note ("...available on Ultra plans"), so it is skipped.
+        var models = ""
+        let desc = group.description.trimmingCharacters(in: .whitespaces)
+        if !desc.isEmpty && !group.displayName.contains("Argon") {
+            if let colon = desc.range(of: ":"), desc.lowercased().hasPrefix("models within") {
+                models = desc[colon.upperBound...].trimmingCharacters(in: .whitespaces)
+            } else {
+                models = desc
+            }
+        }
+
+        let item = makeItem(name, icon: groupIcon(group.displayName))
+        let title = NSMutableAttributedString(
+            string: name,
+            attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]
+        )
+        if !models.isEmpty {
+            title.append(NSAttributedString(
+                string: " (\(models))",
+                attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]
+            ))
+        }
+        item.attributedTitle = title
+        return item
+    }
+
     func buildMenu() {
         let menu = NSMenu()
         // Info rows have no action; without this AppKit draws them as disabled (faded gray).
@@ -410,19 +450,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let quota = latestQuota {
             if !quota.allGroups.isEmpty {
                 for group in quota.allGroups {
-                    menu.addItem(makeItem(group.displayName,
-                                          icon: groupIcon(group.displayName),
-                                          attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
-
-                    // Skip the Argon plan note ("...available on Ultra plans")
-                    if !group.description.isEmpty && !group.displayName.contains("Argon") {
-                        menu.addItem(makeItem(group.description,
-                                              indent: 1,
-                                              attributes: [
-                                                .font: NSFont.systemFont(ofSize: 12),
-                                                .foregroundColor: NSColor.secondaryLabelColor
-                                              ]))
-                    }
+                    menu.addItem(makeGroupHeader(group))
 
                     for bucket in group.buckets {
                         addBucketItems(to: menu,
