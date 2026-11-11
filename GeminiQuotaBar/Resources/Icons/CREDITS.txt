@@ -1,0 +1,12 @@
+Brand icons in this folder:
+
+- antigravity.svg, claude.svg, openai.svg
+  LobeHub Icons (@lobehub/icons-static-svg v1.102.0), MIT License
+  https://github.com/lobehub/lobe-icons
+
+- gemini.svg
+  Simple Icons (simple-icons v16.37.0, "googlegemini"), CC0 1.0
+  https://simpleicons.org
+
+The logos are trademarks of their respective owners (Google, Anthropic, OpenAI)
+and are used here only to identify the corresponding products.

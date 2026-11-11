@@ -13,11 +13,12 @@ Native macOS menu bar (status bar) app that shows, in real time next to your Mac
 - **Ultra-lightweight and native**: Written in Swift with Cocoa / AppKit (no Electron, no heavy dependencies).
 - **Straight to the source**: Dynamically detects the local Antigravity daemons (`agy` or `language_server`) via Connect-RPC in milliseconds, with HTTP/HTTPS and CSRF token support.
 - **Menu bar display**:
-  - `♊ 5h: 78% (1h 28m) · Wk: 38% (2d 2h)` (or 10 configurable styles, with or without countdown).
+  - `5h: 78% (1h 28m) · Wk: 38% (2d 2h)` next to the Antigravity logo (10 configurable styles, with or without countdown).
+  - Menu bar icons are template images, so they adapt to light/dark mode and the menu bar tint.
 - **Interactive drop-down menu**:
   - Dynamic model grouping: **Google Gemini**, **Claude and GPT**, and **Gemini 4 Argon**.
-  - Color emoji health indicators (🟢 ≥ 50%, 🟡 20–50%, 🔴 < 20%).
-  - **Exact reset countdown**: Shows the days and hours remaining for each metric (e.g. `⏳ 2d 2h`) plus the exact date/time (`Resets in 2 days, 2 hours (Sat 7 Nov, 01:31)`).
+  - Native macOS look: official monochrome logos for products (Antigravity, Gemini, Claude, OpenAI), SF Symbols for generic actions, and colored health dots (green ≥ 50%, yellow 20–50%, red < 20%).
+  - **Exact reset countdown**: Shows the days and hours remaining for each metric (e.g. `2d 2h`) plus the exact date/time (`Resets in 2 days, 2 hours (Sat 7 Nov, 01:31)`).
   - Manual refresh button (`⌘R`).
   - Configurable refresh interval (30s, 1m, 5m).
   - Option to launch automatically at login.
@@ -63,6 +64,7 @@ Native macOS menu bar (status bar) app that shows, in real time next to your Mac
 │   │   ├── AppDelegate.swift    # Menu bar logic, UI, and LaunchAgent
 │   │   ├── QuotaFetcher.swift   # Process detection and Connect-RPC query to Antigravity
 │   │   └── main.swift           # Entry point for the accessory app
+│   ├── Resources/Icons/         # Brand logos (SVG, template images) + CREDITS.txt
 │   └── build.sh                 # Native build script and .app packaging
 ├── .gitignore
 └── README.md

@@ -1,51 +1,166 @@
 import Cocoa
 
-enum DisplayFormat: Int {
-    case standardWithTime = 0 // ♊ 5h: 78% (1h 28m) · Wk: 38% (2d 2h)
-    case standard = 1         // ♊ 5h: 78% · Wk: 38%
-    case compactWithTime = 2  // ♊ 78% (1h) | 38% (2d)
-    case compact = 3          // ♊ 78% | 38%
-    case icons = 4            // ⚡78% · 📅38% (2d 2h)
-    case weeklyOnly = 5       // ♊ Wk: 38% · ⏳ 2d 2h
-    case fiveHourOnly = 6     // ♊ 5h: 78% · ⏳ 1h 28m
-    case argonOnly = 7        // 🪐 Argon: 1% · ⏳ 5d 17h
-    case lowest = 8           // ⚠️ Min: 1% (5d 17h)
-    case descriptive = 9      // Gemini: 78% (5h) · 38% (Wk)
-    
+// MARK: - SF Symbols helpers
+
+/// Returns an SF Symbol image. Without a color it stays a template image, so it
+/// adapts automatically to light/dark mode and menu highlight states.
+func symbol(_ name: String,
+            _ description: String? = nil,
+            size: CGFloat = 13,
+            weight: NSFont.Weight = .regular,
+            color: NSColor? = nil) -> NSImage? {
+    guard let base = NSImage(systemSymbolName: name, accessibilityDescription: description) else { return nil }
+    var config = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
+    if let color = color {
+        config = config.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+    }
+    return base.withSymbolConfiguration(config)
+}
+
+/// System health color for a remaining-quota percentage.
+func healthColor(percent: Int) -> NSColor {
+    if percent >= 50 { return .systemGreen }
+    if percent >= 20 { return .systemYellow }
+    return .systemRed
+}
+
+/// An icon is either a system SF Symbol (for generic concepts like time, refresh, quit)
+/// or one or more official brand logos bundled in Contents/Resources (for products).
+enum Icon {
+    case sf(String)
+    case brand(String)       // antigravity, gemini, claude, openai
+    case brands([String])    // several logos side by side, e.g. Claude + OpenAI
+
+    static let antigravity = Icon.brand("antigravity")
+    static let gemini = Icon.brand("gemini")
+}
+
+/// Loads a bundled monochrome brand logo (SVG) as a template image.
+func brandImage(_ name: String, size: CGFloat) -> NSImage? {
+    guard let url = Bundle.main.url(forResource: name, withExtension: "svg"),
+          let img = NSImage(contentsOf: url) else { return nil }
+    img.size = NSSize(width: size, height: size)
+    img.isTemplate = true
+    img.accessibilityDescription = name.capitalized
+    return img
+}
+
+/// Renders an Icon. Brand logos and uncolored symbols are template images,
+/// so they follow light/dark mode exactly like native SF Symbols.
+func iconImage(_ icon: Icon, size: CGFloat = 13, weight: NSFont.Weight = .regular, color: NSColor? = nil) -> NSImage? {
+    // Brand logos are drawn edge-to-edge, so they need a slightly larger box
+    // than an SF Symbol of the same point size to look optically equal.
+    let brandSize = round(size * 1.15)
+    switch icon {
+    case .sf(let name):
+        return symbol(name, nil, size: size, weight: weight, color: color)
+    case .brand(let name):
+        return brandImage(name, size: brandSize) ?? symbol("questionmark.square.dashed", nil, size: size)
+    case .brands(let names):
+        let images = names.compactMap { brandImage($0, size: brandSize) }
+        guard !images.isEmpty else { return nil }
+        let gap: CGFloat = 3
+        let width = CGFloat(images.count) * brandSize + CGFloat(images.count - 1) * gap
+        let composite = NSImage(size: NSSize(width: width, height: brandSize), flipped: false) { _ in
+            for (i, img) in images.enumerated() {
+                img.draw(in: NSRect(x: CGFloat(i) * (brandSize + gap), y: 0, width: brandSize, height: brandSize))
+            }
+            return true
+        }
+        composite.isTemplate = true
+        return composite
+    }
+}
+
+/// Icon for a model group returned by the server.
+func groupIcon(_ groupName: String) -> Icon {
+    // Gemini 4 Argon is a Gemini model, so it uses the Gemini mark too.
+    if groupName.contains("Gemini") || groupName.contains("Argon") { return .gemini }
+    let hasClaude = groupName.contains("Claude")
+    let hasGPT = groupName.contains("GPT") || groupName.contains("OpenAI")
+    if hasClaude && hasGPT { return .brands(["claude", "openai"]) }
+    if hasClaude { return .brand("claude") }
+    if hasGPT { return .brand("openai") }
+    return .antigravity
+}
+
+enum DisplayFormat: Int, CaseIterable {
+    case standardWithTime = 0 // [Antigravity] 5h: 78% (1h 28m) · Wk: 38% (2d 2h)
+    case standard = 1         // [Antigravity] 5h: 78% · Wk: 38%
+    case compactWithTime = 2  // [Antigravity] 78% (1h) | 38% (2d)
+    case compact = 3          // [Antigravity] 78% | 38%
+    case icons = 4            // [gauge] 78% · 38% (2d 2h)
+    case weeklyOnly = 5       // [calendar] Wk: 38% · 2d 2h
+    case fiveHourOnly = 6     // [clock] 5h: 78% · 1h 28m
+    case argonOnly = 7        // [Gemini] Argon: 1% · 5d 17h
+    case lowest = 8           // [triangle] Min: 1% (5d 17h)
+    case descriptive = 9      // [Gemini] Gemini: 78% (5h) · 38% (Wk)
+
+    /// Icon shown in the menu bar, to the left of the text.
+    /// The app itself is identified by the Antigravity logo; formats focused on
+    /// a single metric use the SF Symbol that describes that metric.
+    func icon(quota: GeminiQuota?) -> Icon {
+        switch self {
+        case .icons: return .sf("gauge.with.dots.needle.50percent") // remaining quota = fuel gauge
+        case .weeklyOnly: return .sf("calendar")                     // weekly window
+        case .fiveHourOnly: return .sf("clock")                      // 5-hour window
+        case .argonOnly: return (quota == nil || quota?.argonWeeklyPercent != nil) ? .gemini : .sf("calendar")
+        case .lowest: return .sf("exclamationmark.triangle")         // warning: lowest quota
+        case .descriptive: return .gemini
+        default: return .antigravity
+        }
+    }
+
+    /// Label used in the "Menu Bar Style" submenu.
+    var menuLabel: String {
+        switch self {
+        case .standardWithTime: return "5h: 78% (1h 28m) · Wk: 38% (2d 2h)  — Recommended"
+        case .standard: return "5h: 78% · Wk: 38%  — Percentages only"
+        case .compactWithTime: return "78% (1h) | 38% (2d)  — Compact with time"
+        case .compact: return "78% | 38%  — Compact"
+        case .icons: return "78% · 38% (2d)  — Gauge"
+        case .weeklyOnly: return "Wk: 38% · 2d 2h  — Weekly only"
+        case .fiveHourOnly: return "5h: 78% · 1h 28m  — 5-hour only"
+        case .argonOnly: return "Argon: 1% · 5d 17h  — Gemini 4 Argon"
+        case .lowest: return "Min: 1% (5d 17h)  — Lowest of all"
+        case .descriptive: return "Gemini: 78% (5h) · 38% (Wk)"
+        }
+    }
+
     func format(quota: GeminiQuota) -> String {
         let fiveHourCd = formatShortCountdown(from: quota.fiveHourResetTime)
         let weeklyCd = formatShortCountdown(from: quota.weeklyResetTime)
         let argonCd = formatShortCountdown(from: quota.argonResetTime ?? "")
-        
+
         switch self {
         case .standardWithTime:
             let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
             let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "♊ 5h: \(quota.fiveHourPercent)%\(hStr) · Wk: \(quota.weeklyPercent)%\(wStr)"
+            return "5h: \(quota.fiveHourPercent)%\(hStr) · Wk: \(quota.weeklyPercent)%\(wStr)"
         case .standard:
-            return "♊ 5h: \(quota.fiveHourPercent)% · Wk: \(quota.weeklyPercent)%"
+            return "5h: \(quota.fiveHourPercent)% · Wk: \(quota.weeklyPercent)%"
         case .compactWithTime:
             let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
             let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "♊ \(quota.fiveHourPercent)%\(hStr) | \(quota.weeklyPercent)%\(wStr)"
+            return "\(quota.fiveHourPercent)%\(hStr) | \(quota.weeklyPercent)%\(wStr)"
         case .compact:
-            return "♊ \(quota.fiveHourPercent)% | \(quota.weeklyPercent)%"
+            return "\(quota.fiveHourPercent)% | \(quota.weeklyPercent)%"
         case .icons:
             let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "⚡\(quota.fiveHourPercent)% · 📅\(quota.weeklyPercent)%\(wStr)"
+            return "\(quota.fiveHourPercent)% · \(quota.weeklyPercent)%\(wStr)"
         case .weeklyOnly:
-            let wStr = weeklyCd.isEmpty ? "" : " · ⏳ \(weeklyCd)"
-            return "♊ Wk: \(quota.weeklyPercent)%\(wStr)"
+            let wStr = weeklyCd.isEmpty ? "" : " · \(weeklyCd)"
+            return "Wk: \(quota.weeklyPercent)%\(wStr)"
         case .fiveHourOnly:
-            let hStr = fiveHourCd.isEmpty ? "" : " · ⏳ \(fiveHourCd)"
-            return "♊ 5h: \(quota.fiveHourPercent)%\(hStr)"
+            let hStr = fiveHourCd.isEmpty ? "" : " · \(fiveHourCd)"
+            return "5h: \(quota.fiveHourPercent)%\(hStr)"
         case .argonOnly:
             if let argon = quota.argonWeeklyPercent {
-                let aStr = argonCd.isEmpty ? "" : " · ⏳ \(argonCd)"
-                return "🪐 Argon: \(argon)%\(aStr)"
+                let aStr = argonCd.isEmpty ? "" : " · \(argonCd)"
+                return "Argon: \(argon)%\(aStr)"
             } else {
-                let wStr = weeklyCd.isEmpty ? "" : " · ⏳ \(weeklyCd)"
-                return "♊ Wk: \(quota.weeklyPercent)%\(wStr)"
+                let wStr = weeklyCd.isEmpty ? "" : " · \(weeklyCd)"
+                return "Wk: \(quota.weeklyPercent)%\(wStr)"
             }
         case .lowest:
             var minP = min(quota.fiveHourPercent, quota.weeklyPercent)
@@ -58,7 +173,7 @@ enum DisplayFormat: Int {
                 minP = c
             }
             let cdStr = cd.isEmpty ? "" : " (\(cd))"
-            return "⚠️ Min: \(minP)%\(cdStr)"
+            return "Min: \(minP)%\(cdStr)"
         case .descriptive:
             return "Gemini: \(quota.fiveHourPercent)% (5h) · \(quota.weeklyPercent)% (Wk)"
         }
@@ -75,15 +190,15 @@ func formatShortCountdown(from isoString: String) -> String {
         date = formatter.date(from: isoString)
     }
     guard let targetDate = date else { return "" }
-    
+
     let diff = targetDate.timeIntervalSince(Date())
     if diff <= 0 { return "0h" }
-    
+
     let totalMinutes = Int(diff) / 60
     let days = totalMinutes / (24 * 60)
     let hours = (totalMinutes % (24 * 60)) / 60
     let minutes = totalMinutes % 60
-    
+
     if days > 0 {
         return "\(days)d \(hours)h"
     } else if hours > 0 {
@@ -103,17 +218,17 @@ func formatFullCountdown(from isoString: String) -> (short: String, detailed: St
         date = formatter.date(from: isoString)
     }
     guard let targetDate = date else { return nil }
-    
+
     let diff = targetDate.timeIntervalSince(Date())
     if diff <= 0 {
         return (short: "0h", detailed: "Imminent", absolute: "Now")
     }
-    
+
     let totalMinutes = Int(diff) / 60
     let days = totalMinutes / (24 * 60)
     let hours = (totalMinutes % (24 * 60)) / 60
     let minutes = totalMinutes % 60
-    
+
     let short: String
     let detailed: String
     if days > 0 {
@@ -126,12 +241,12 @@ func formatFullCountdown(from isoString: String) -> (short: String, detailed: St
         short = "\(minutes)m"
         detailed = "\(minutes) minute\(minutes == 1 ? "" : "s")"
     }
-    
+
     let timeFormatter = DateFormatter()
     timeFormatter.locale = Locale(identifier: "en_US")
     timeFormatter.dateFormat = "EEE d MMM, HH:mm"
     let absolute = timeFormatter.string(from: targetDate)
-    
+
     return (short: short, detailed: detailed, absolute: absolute)
 }
 
@@ -142,7 +257,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var currentFormat: DisplayFormat = .standardWithTime
     var latestQuota: GeminiQuota?
     var isFetching = false
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Load saved preferences
         if let savedFormat = UserDefaults.standard.value(forKey: "DisplayFormat") as? Int,
@@ -153,9 +268,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
            savedInterval >= 15.0 {
             refreshInterval = savedInterval
         }
-        
+
         // Initialize Status Bar Item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.imagePosition = .imageLeading
         if let savedLast5h = UserDefaults.standard.value(forKey: "Last5h") as? Int,
            let savedLastWk = UserDefaults.standard.value(forKey: "LastWeekly") as? Int {
             var cached = GeminiQuota()
@@ -167,18 +283,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 cached.argonWeeklyPercent = savedArgon
                 cached.argonResetTime = UserDefaults.standard.string(forKey: "LastArgonReset")
             }
-            if let button = statusItem.button {
-                button.title = currentFormat.format(quota: cached)
-            }
-        } else if let button = statusItem.button {
-            button.title = "♊ Connecting..."
+            updateStatusBarTitle(quota: cached)
+        } else {
+            setStatusBar(icon: .antigravity, text: "Connecting…")
         }
-        
+
         buildMenu()
         fetchData()
         startTimer()
     }
-    
+
     func startTimer(interval: TimeInterval? = nil) {
         timer?.invalidate()
         let intv = interval ?? refreshInterval
@@ -186,11 +300,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.fetchData()
         }
     }
-    
+
     @objc func fetchData() {
         guard !isFetching else { return }
         isFetching = true
-        
+
         QuotaFetcher.shared.fetchQuota { [weak self] result in
             guard let self = self else { return }
             self.isFetching = false
@@ -211,166 +325,139 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.startTimer(interval: self.refreshInterval)
             case .failure(let error):
                 if self.latestQuota == nil {
-                    if let button = self.statusItem.button {
-                        button.title = "♊ (Waiting for IDE...)"
-                    }
+                    self.setStatusBar(icon: .antigravity, text: "Waiting for IDE…")
                     self.buildErrorMenu(error: error.localizedDescription)
                 }
                 self.startTimer(interval: 5.0)
             }
         }
     }
-    
-    func updateStatusBarTitle(quota: GeminiQuota) {
+
+    /// Sets the menu bar icon (template image, adapts to light/dark) and text.
+    func setStatusBar(icon: Icon, text: String) {
         guard let button = statusItem.button else { return }
-        button.title = currentFormat.format(quota: quota)
+        button.image = iconImage(icon, size: 14, weight: .medium)
+        button.title = text.isEmpty ? "" : " " + text
     }
-    
-    func getStatusEmoji(percent: Int) -> String {
-        if percent >= 50 { return "🟢" }
-        if percent >= 20 { return "🟡" }
-        return "🔴"
+
+    func updateStatusBarTitle(quota: GeminiQuota) {
+        setStatusBar(icon: currentFormat.icon(quota: quota), text: currentFormat.format(quota: quota))
     }
-    
+
+    /// Creates a menu item with an optional icon (SF Symbol or brand logo).
+    func makeItem(_ title: String,
+                  icon: Icon? = nil,
+                  symbolColor: NSColor? = nil,
+                  symbolSize: CGFloat = 13,
+                  action: Selector? = nil,
+                  key: String = "",
+                  indent: Int = 0,
+                  attributes: [NSAttributedString.Key: Any]? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        if let icon = icon {
+            item.image = iconImage(icon, size: symbolSize, color: symbolColor)
+        }
+        if let attrs = attributes {
+            item.attributedTitle = NSAttributedString(string: title, attributes: attrs)
+        }
+        item.indentationLevel = indent
+        return item
+    }
+
+    func addBucketItems(to menu: NSMenu, name: String, percent: Int, resetTime: String, description: String) {
+        let countdown = formatFullCountdown(from: resetTime)
+
+        var itemTitle = "\(name): \(percent)%"
+        if let cd = countdown {
+            itemTitle += "  ·  \(cd.short)"
+        }
+        // Colored dot = health indicator (green > 50%, yellow 20–50%, red < 20%)
+        menu.addItem(makeItem(itemTitle,
+                              icon: .sf("circle.fill"),
+                              symbolColor: healthColor(percent: percent),
+                              symbolSize: 9,
+                              indent: 1,
+                              attributes: [.font: NSFont.menuFont(ofSize: 13)]))
+
+        // Exact countdown detail line: days and hours
+        if let cd = countdown {
+            let resetDetail = "Resets in \(cd.detailed)  (\(cd.absolute))"
+            menu.addItem(makeItem(resetDetail,
+                                  indent: 2,
+                                  attributes: [
+                                    .font: NSFont.systemFont(ofSize: 11),
+                                    .foregroundColor: NSColor.secondaryLabelColor
+                                  ]))
+        } else if !description.isEmpty {
+            menu.addItem(makeItem(description,
+                                  indent: 2,
+                                  attributes: [
+                                    .font: NSFont.systemFont(ofSize: 11),
+                                    .foregroundColor: NSColor.secondaryLabelColor
+                                  ]))
+        }
+    }
+
     func buildMenu() {
         let menu = NSMenu()
-        
+
         if let quota = latestQuota {
             if !quota.allGroups.isEmpty {
                 for group in quota.allGroups {
-                    var icon = "✨ "
-                    if group.displayName.contains("Argon") {
-                        icon = "🪐 "
-                    } else if group.displayName.contains("Gemini") {
-                        icon = "♊ "
-                    } else if group.displayName.contains("Claude") || group.displayName.contains("GPT") {
-                        icon = "🤖 "
-                    }
-                    
-                    let headerItem = NSMenuItem(title: "\(icon)\(group.displayName)", action: nil, keyEquivalent: "")
-                    headerItem.attributedTitle = NSAttributedString(
-                        string: "\(icon)\(group.displayName)",
-                        attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
-                    )
-                    menu.addItem(headerItem)
-                    
+                    menu.addItem(makeItem(group.displayName,
+                                          icon: groupIcon(group.displayName),
+                                          attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
+
                     if !group.description.isEmpty {
-                        let descItem = NSMenuItem(title: "    " + group.description, action: nil, keyEquivalent: "")
-                        descItem.attributedTitle = NSAttributedString(
-                            string: "    " + group.description,
-                            attributes: [
-                                .font: NSFont.systemFont(ofSize: 10),
-                                .foregroundColor: NSColor.secondaryLabelColor
-                            ]
-                        )
-                        menu.addItem(descItem)
+                        menu.addItem(makeItem(group.description,
+                                              indent: 1,
+                                              attributes: [
+                                                .font: NSFont.systemFont(ofSize: 11),
+                                                .foregroundColor: NSColor.secondaryLabelColor
+                                              ]))
                     }
-                    
+
                     for bucket in group.buckets {
-                        let emoji = getStatusEmoji(percent: bucket.percent)
-                        let countdown = formatFullCountdown(from: bucket.resetTime)
-                        
-                        var itemTitle = "\(emoji) \(bucket.displayName): \(bucket.percent)%"
-                        if let cd = countdown {
-                            itemTitle += "  ⏳ \(cd.short)"
-                        }
-                        
-                        let bucketItem = NSMenuItem(
-                            title: itemTitle,
-                            action: nil,
-                            keyEquivalent: ""
-                        )
-                        bucketItem.attributedTitle = NSAttributedString(
-                            string: itemTitle,
-                            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]
-                        )
-                        menu.addItem(bucketItem)
-                        
-                        // Exact countdown detail line: days and hours
-                        if let cd = countdown {
-                            let resetDetail = "      ⏳ Resets in \(cd.detailed)  (\(cd.absolute))"
-                            let detailItem = NSMenuItem(title: resetDetail, action: nil, keyEquivalent: "")
-                            detailItem.attributedTitle = NSAttributedString(
-                                string: resetDetail,
-                                attributes: [
-                                    .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                                    .foregroundColor: NSColor.systemBlue
-                                ]
-                            )
-                            menu.addItem(detailItem)
-                        } else if !bucket.description.isEmpty {
-                            let descItem = NSMenuItem(title: "      " + bucket.description, action: nil, keyEquivalent: "")
-                            descItem.attributedTitle = NSAttributedString(
-                                string: "      " + bucket.description,
-                                attributes: [
-                                    .font: NSFont.systemFont(ofSize: 10),
-                                    .foregroundColor: NSColor.secondaryLabelColor
-                                ]
-                            )
-                            menu.addItem(descItem)
-                        }
+                        addBucketItems(to: menu,
+                                       name: bucket.displayName,
+                                       percent: bucket.percent,
+                                       resetTime: bucket.resetTime,
+                                       description: bucket.description)
                     }
-                    
+
                     menu.addItem(NSMenuItem.separator())
                 }
             } else {
                 // Fallback rendering
-                let headerItem = NSMenuItem(title: "♊ Google Gemini Quota", action: nil, keyEquivalent: "")
-                headerItem.attributedTitle = NSAttributedString(
-                    string: "♊ Google Gemini Quota",
-                    attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
-                )
-                menu.addItem(headerItem)
-                menu.addItem(NSMenuItem.separator())
-                
-                let cd5h = formatFullCountdown(from: quota.fiveHourResetTime)
-                var title5h = "\(getStatusEmoji(percent: quota.fiveHourPercent)) 5-Hour Limit: \(quota.fiveHourPercent)%"
-                if let cd = cd5h { title5h += "  ⏳ \(cd.short)" }
-                menu.addItem(NSMenuItem(title: title5h, action: nil, keyEquivalent: ""))
-                if let cd = cd5h {
-                    menu.addItem(NSMenuItem(title: "      ⏳ Resets in \(cd.detailed)", action: nil, keyEquivalent: ""))
-                }
-                
-                let cdWk = formatFullCountdown(from: quota.weeklyResetTime)
-                var titleWk = "\(getStatusEmoji(percent: quota.weeklyPercent)) Weekly Limit: \(quota.weeklyPercent)%"
-                if let cd = cdWk { titleWk += "  ⏳ \(cd.short)" }
-                menu.addItem(NSMenuItem(title: titleWk, action: nil, keyEquivalent: ""))
-                if let cd = cdWk {
-                    menu.addItem(NSMenuItem(title: "      ⏳ Resets in \(cd.detailed)", action: nil, keyEquivalent: ""))
-                }
+                menu.addItem(makeItem("Google Gemini Quota",
+                                      icon: .gemini,
+                                      attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
+                addBucketItems(to: menu, name: "5-Hour Limit", percent: quota.fiveHourPercent,
+                               resetTime: quota.fiveHourResetTime, description: "")
+                addBucketItems(to: menu, name: "Weekly Limit", percent: quota.weeklyPercent,
+                               resetTime: quota.weeklyResetTime, description: "")
                 menu.addItem(NSMenuItem.separator())
             }
         } else {
-            menu.addItem(NSMenuItem(title: "Loading quota information...", action: nil, keyEquivalent: ""))
+            menu.addItem(makeItem("Loading quota information…", icon: .sf("hourglass")))
             menu.addItem(NSMenuItem.separator())
         }
-        
+
         // Format submenu
         let formatMenu = NSMenu()
-        let formats: [(DisplayFormat, String)] = [
-            (.standardWithTime, "♊ 5h: 78% (1h 28m) · Wk: 38% (2d 2h)  [Recommended]"),
-            (.standard, "♊ 5h: 78% · Wk: 38%  [Percentages only]"),
-            (.compactWithTime, "♊ 78% (1h) | 38% (2d)  [Compact with time]"),
-            (.compact, "♊ 78% | 38%  [Compact]"),
-            (.icons, "⚡78% · 📅38% (2d)  [Icons]"),
-            (.weeklyOnly, "♊ Wk: 38% · ⏳ 2d 2h  [Weekly only]"),
-            (.fiveHourOnly, "♊ 5h: 78% · ⏳ 1h 28m  [5-hour only]"),
-            (.argonOnly, "🪐 Argon: 1% · ⏳ 5d 17h  [Gemini 4 Argon]"),
-            (.lowest, "⚠️ Min: 1% (5d 17h)  [Lowest of all]"),
-            (.descriptive, "Gemini: 78% (5h) · 38% (Wk)")
-        ]
-        
-        for (fmt, title) in formats {
-            let item = NSMenuItem(title: title, action: #selector(changeFormat(_:)), keyEquivalent: "")
+        for fmt in DisplayFormat.allCases {
+            let item = makeItem(fmt.menuLabel,
+                                icon: fmt.icon(quota: nil),
+                                action: #selector(changeFormat(_:)))
             item.tag = fmt.rawValue
             item.state = (fmt == currentFormat) ? .on : .off
             formatMenu.addItem(item)
         }
-        
-        let formatSubmenuItem = NSMenuItem(title: "Menu Bar Style", action: nil, keyEquivalent: "")
+
+        let formatSubmenuItem = makeItem("Menu Bar Style", icon: .sf("menubar.rectangle"))
         formatSubmenuItem.submenu = formatMenu
         menu.addItem(formatSubmenuItem)
-        
+
         // Refresh interval submenu
         let intervalMenu = NSMenu()
         let intervals: [(TimeInterval, String)] = [
@@ -384,73 +471,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = (abs(refreshInterval - sec) < 1.0) ? .on : .off
             intervalMenu.addItem(item)
         }
-        let intervalSubmenuItem = NSMenuItem(title: "Refresh Interval", action: nil, keyEquivalent: "")
+        let intervalSubmenuItem = makeItem("Refresh Interval", icon: .sf("timer"))
         intervalSubmenuItem.submenu = intervalMenu
         menu.addItem(intervalSubmenuItem)
-        
+
         menu.addItem(NSMenuItem.separator())
-        
+
         // Refresh now item
-        let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(fetchData), keyEquivalent: "r")
+        let refreshItem = makeItem("Refresh Now", icon: .sf("arrow.clockwise"), action: #selector(fetchData), key: "r")
         refreshItem.keyEquivalentModifierMask = .command
         menu.addItem(refreshItem)
-        
+
         // Last updated time
         if let quota = latestQuota {
             let formatter = DateFormatter()
             formatter.dateFormat = "HH:mm:ss"
             let timeStr = formatter.string(from: quota.lastUpdated)
-            let timeItem = NSMenuItem(title: "Updated: \(timeStr)", action: nil, keyEquivalent: "")
+            let timeItem = makeItem("Updated: \(timeStr)", icon: .sf("clock.arrow.circlepath"))
             timeItem.isEnabled = false
             menu.addItem(timeItem)
         }
-        
+
         menu.addItem(NSMenuItem.separator())
-        
+
         // Launch at Login
-        let launchItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        let launchItem = makeItem("Launch at Login", icon: .sf("power"), action: #selector(toggleLaunchAtLogin(_:)))
         launchItem.state = isLaunchAtLoginEnabled() ? .on : .off
         menu.addItem(launchItem)
-        
+
         // Quit item
-        let quitItem = NSMenuItem(title: "Quit Gemini Quota", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = makeItem("Quit Gemini Quota", icon: .sf("xmark.circle"), action: #selector(quitApp), key: "q")
         quitItem.keyEquivalentModifierMask = .command
         menu.addItem(quitItem)
-        
+
         statusItem.menu = menu
     }
-    
+
     func buildErrorMenu(error: String) {
         let menu = NSMenu()
-        let header = NSMenuItem(title: "♊ Gemini Quota Bar", action: nil, keyEquivalent: "")
-        header.attributedTitle = NSAttributedString(string: "♊ Gemini Quota Bar", attributes: [.font: NSFont.boldSystemFont(ofSize: 13)])
-        menu.addItem(header)
+        menu.addItem(makeItem("Gemini Quota Bar",
+                              icon: .antigravity,
+                              attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
         menu.addItem(NSMenuItem.separator())
-        
-        let errItem = NSMenuItem(title: "Status: Disconnected", action: nil, keyEquivalent: "")
-        errItem.attributedTitle = NSAttributedString(
-            string: "⚠️ Status: \(error)",
-            attributes: [.foregroundColor: NSColor.systemRed]
-        )
-        menu.addItem(errItem)
-        
-        let tipItem = NSMenuItem(title: "Make sure Antigravity IDE is open.", action: nil, keyEquivalent: "")
+
+        menu.addItem(makeItem("Status: \(error)",
+                              icon: .sf("exclamationmark.triangle.fill"),
+                              symbolColor: .systemOrange,
+                              attributes: [.foregroundColor: NSColor.systemRed]))
+
+        let tipItem = makeItem("Make sure Antigravity IDE is open.", icon: .sf("info.circle"))
         tipItem.isEnabled = false
         menu.addItem(tipItem)
-        
+
         menu.addItem(NSMenuItem.separator())
-        let refreshItem = NSMenuItem(title: "Retry Connection", action: #selector(fetchData), keyEquivalent: "r")
+        let refreshItem = makeItem("Retry Connection", icon: .sf("arrow.clockwise"), action: #selector(fetchData), key: "r")
         refreshItem.keyEquivalentModifierMask = .command
         menu.addItem(refreshItem)
-        
+
         menu.addItem(NSMenuItem.separator())
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = makeItem("Quit", icon: .sf("xmark.circle"), action: #selector(quitApp), key: "q")
         quitItem.keyEquivalentModifierMask = .command
         menu.addItem(quitItem)
-        
+
         statusItem.menu = menu
     }
-    
+
     @objc func changeFormat(_ sender: NSMenuItem) {
         guard let format = DisplayFormat(rawValue: sender.tag) else { return }
         currentFormat = format
@@ -460,7 +545,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         buildMenu()
     }
-    
+
     @objc func changeInterval(_ sender: NSMenuItem) {
         guard let interval = sender.representedObject as? TimeInterval else { return }
         refreshInterval = interval
@@ -468,21 +553,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startTimer()
         buildMenu()
     }
-    
+
     @objc func quitApp() {
         NSApplication.shared.terminate(nil)
     }
-    
+
     // MARK: - Launch at Login Helper
     private var launchAgentPlistURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent("Library/LaunchAgents/com.antigravity.geminiquotabar.plist")
     }
-    
+
     func isLaunchAtLoginEnabled() -> Bool {
         return FileManager.default.fileExists(atPath: launchAgentPlistURL.path)
     }
-    
+
     @objc func toggleLaunchAtLogin(_ sender: NSMenuItem) {
         let enabled = isLaunchAtLoginEnabled()
         let fm = FileManager.default

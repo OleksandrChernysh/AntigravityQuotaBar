@@ -51,6 +51,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 </plist>
 EOF
 
+echo "==> Copying brand icons..."
+cp "$PROJECT_DIR"/Resources/Icons/*.svg "$RESOURCES_DIR/"
+
 echo "==> Signing the app with an ad-hoc signature..."
 codesign --force --deep --sign - "$APP_BUNDLE"
 
