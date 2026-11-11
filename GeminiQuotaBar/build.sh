@@ -8,12 +8,12 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME"
 MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
 RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
 
-echo "==> Limpiando directorio de compilación..."
+echo "==> Cleaning build directory..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
-echo "==> Compilando código Swift..."
+echo "==> Compiling Swift code..."
 mkdir -p /tmp/module-cache
 swiftc \
     -O \
@@ -25,7 +25,7 @@ swiftc \
     "$PROJECT_DIR/Sources/main.swift" \
     -o "$MACOS_DIR/GeminiQuotaBar"
 
-echo "==> Creando Info.plist..."
+echo "==> Creating Info.plist..."
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -51,7 +51,7 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 </plist>
 EOF
 
-echo "==> Firmando la aplicación con firma ad-hoc..."
+echo "==> Signing the app with an ad-hoc signature..."
 codesign --force --deep --sign - "$APP_BUNDLE"
 
-echo "==> Compilación finalizada con éxito en: $APP_BUNDLE"
+echo "==> Build completed successfully at: $APP_BUNDLE"

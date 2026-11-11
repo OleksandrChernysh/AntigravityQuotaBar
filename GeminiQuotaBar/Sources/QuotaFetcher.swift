@@ -175,7 +175,7 @@ class QuotaFetcher {
             let servers = self.findLanguageServerProcesses()
             if servers.isEmpty {
                 DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "QuotaFetcher", code: 1, userInfo: [NSLocalizedDescriptionKey: "Antigravity IDE no está en ejecución"])))
+                    completion(.failure(NSError(domain: "QuotaFetcher", code: 1, userInfo: [NSLocalizedDescriptionKey: "Antigravity IDE is not running"])))
                 }
                 return
             }
@@ -209,7 +209,7 @@ class QuotaFetcher {
             }
             
             DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "QuotaFetcher", code: 2, userInfo: [NSLocalizedDescriptionKey: "No se pudo conectar al endpoint de Antigravity"])))
+                completion(.failure(NSError(domain: "QuotaFetcher", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not connect to the Antigravity endpoint"])))
             }
         }
     }
@@ -256,11 +256,11 @@ class QuotaFetcher {
                                 let bReset = bucket.resetTime ?? ""
                                 let bDesc = bucket.description ?? ""
                                 
-                                var defaultName = "Límite"
+                                var defaultName = "Limit"
                                 if bWindow == "5h" || bId.contains("5h") || bWindow.contains("session") {
-                                    defaultName = "Límite 5 Horas"
+                                    defaultName = "5-Hour Limit"
                                 } else if bWindow == "weekly" || bId.contains("weekly") {
-                                    defaultName = "Límite Semanal"
+                                    defaultName = "Weekly Limit"
                                 }
                                 let bDisplayName = (bucket.displayName?.isEmpty == false) ? bucket.displayName! : defaultName
                                 

@@ -1,16 +1,16 @@
 import Cocoa
 
 enum DisplayFormat: Int {
-    case standardWithTime = 0 // ♊ 5h: 78% (1h 28m) · Sem: 38% (2d 2h)
-    case standard = 1         // ♊ 5h: 78% · Sem: 38%
+    case standardWithTime = 0 // ♊ 5h: 78% (1h 28m) · Wk: 38% (2d 2h)
+    case standard = 1         // ♊ 5h: 78% · Wk: 38%
     case compactWithTime = 2  // ♊ 78% (1h) | 38% (2d)
     case compact = 3          // ♊ 78% | 38%
     case icons = 4            // ⚡78% · 📅38% (2d 2h)
-    case weeklyOnly = 5       // ♊ Sem: 38% · ⏳ 2d 2h
+    case weeklyOnly = 5       // ♊ Wk: 38% · ⏳ 2d 2h
     case fiveHourOnly = 6     // ♊ 5h: 78% · ⏳ 1h 28m
     case argonOnly = 7        // 🪐 Argon: 1% · ⏳ 5d 17h
-    case lowest = 8           // ⚠️ Mín: 1% (5d 17h)
-    case descriptive = 9      // Gemini: 78% (5h) · 38% (Sem)
+    case lowest = 8           // ⚠️ Min: 1% (5d 17h)
+    case descriptive = 9      // Gemini: 78% (5h) · 38% (Wk)
     
     func format(quota: GeminiQuota) -> String {
         let fiveHourCd = formatShortCountdown(from: quota.fiveHourResetTime)
@@ -21,9 +21,9 @@ enum DisplayFormat: Int {
         case .standardWithTime:
             let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
             let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "♊ 5h: \(quota.fiveHourPercent)%\(hStr) · Sem: \(quota.weeklyPercent)%\(wStr)"
+            return "♊ 5h: \(quota.fiveHourPercent)%\(hStr) · Wk: \(quota.weeklyPercent)%\(wStr)"
         case .standard:
-            return "♊ 5h: \(quota.fiveHourPercent)% · Sem: \(quota.weeklyPercent)%"
+            return "♊ 5h: \(quota.fiveHourPercent)% · Wk: \(quota.weeklyPercent)%"
         case .compactWithTime:
             let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
             let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
@@ -35,7 +35,7 @@ enum DisplayFormat: Int {
             return "⚡\(quota.fiveHourPercent)% · 📅\(quota.weeklyPercent)%\(wStr)"
         case .weeklyOnly:
             let wStr = weeklyCd.isEmpty ? "" : " · ⏳ \(weeklyCd)"
-            return "♊ Sem: \(quota.weeklyPercent)%\(wStr)"
+            return "♊ Wk: \(quota.weeklyPercent)%\(wStr)"
         case .fiveHourOnly:
             let hStr = fiveHourCd.isEmpty ? "" : " · ⏳ \(fiveHourCd)"
             return "♊ 5h: \(quota.fiveHourPercent)%\(hStr)"
@@ -45,7 +45,7 @@ enum DisplayFormat: Int {
                 return "🪐 Argon: \(argon)%\(aStr)"
             } else {
                 let wStr = weeklyCd.isEmpty ? "" : " · ⏳ \(weeklyCd)"
-                return "♊ Sem: \(quota.weeklyPercent)%\(wStr)"
+                return "♊ Wk: \(quota.weeklyPercent)%\(wStr)"
             }
         case .lowest:
             var minP = min(quota.fiveHourPercent, quota.weeklyPercent)
@@ -58,9 +58,9 @@ enum DisplayFormat: Int {
                 minP = c
             }
             let cdStr = cd.isEmpty ? "" : " (\(cd))"
-            return "⚠️ Mín: \(minP)%\(cdStr)"
+            return "⚠️ Min: \(minP)%\(cdStr)"
         case .descriptive:
-            return "Gemini: \(quota.fiveHourPercent)% (5h) · \(quota.weeklyPercent)% (Sem)"
+            return "Gemini: \(quota.fiveHourPercent)% (5h) · \(quota.weeklyPercent)% (Wk)"
         }
     }
 }
@@ -106,7 +106,7 @@ func formatFullCountdown(from isoString: String) -> (short: String, detailed: St
     
     let diff = targetDate.timeIntervalSince(Date())
     if diff <= 0 {
-        return (short: "0h", detailed: "Inminente", absolute: "Ahora")
+        return (short: "0h", detailed: "Imminent", absolute: "Now")
     }
     
     let totalMinutes = Int(diff) / 60
@@ -118,17 +118,17 @@ func formatFullCountdown(from isoString: String) -> (short: String, detailed: St
     let detailed: String
     if days > 0 {
         short = "\(days)d \(hours)h"
-        detailed = "\(days) día\(days == 1 ? "" : "s"), \(hours) hora\(hours == 1 ? "" : "s")"
+        detailed = "\(days) day\(days == 1 ? "" : "s"), \(hours) hour\(hours == 1 ? "" : "s")"
     } else if hours > 0 {
         short = "\(hours)h \(minutes)m"
-        detailed = "\(hours) hora\(hours == 1 ? "" : "s"), \(minutes) min"
+        detailed = "\(hours) hour\(hours == 1 ? "" : "s"), \(minutes) min"
     } else {
         short = "\(minutes)m"
-        detailed = "\(minutes) minuto\(minutes == 1 ? "" : "s")"
+        detailed = "\(minutes) minute\(minutes == 1 ? "" : "s")"
     }
     
     let timeFormatter = DateFormatter()
-    timeFormatter.locale = Locale(identifier: "es_ES")
+    timeFormatter.locale = Locale(identifier: "en_US")
     timeFormatter.dateFormat = "EEE d MMM, HH:mm"
     let absolute = timeFormatter.string(from: targetDate)
     
@@ -171,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 button.title = currentFormat.format(quota: cached)
             }
         } else if let button = statusItem.button {
-            button.title = "♊ Conectando..."
+            button.title = "♊ Connecting..."
         }
         
         buildMenu()
@@ -212,7 +212,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .failure(let error):
                 if self.latestQuota == nil {
                     if let button = self.statusItem.button {
-                        button.title = "♊ (Esperando IDE...)"
+                        button.title = "♊ (Waiting for IDE...)"
                     }
                     self.buildErrorMenu(error: error.localizedDescription)
                 }
@@ -288,7 +288,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         
                         // Exact countdown detail line: days and hours
                         if let cd = countdown {
-                            let resetDetail = "      ⏳ Reset: en \(cd.detailed)  (\(cd.absolute))"
+                            let resetDetail = "      ⏳ Resets in \(cd.detailed)  (\(cd.absolute))"
                             let detailItem = NSMenuItem(title: resetDetail, action: nil, keyEquivalent: "")
                             detailItem.attributedTitle = NSAttributedString(
                                 string: resetDetail,
@@ -324,40 +324,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(NSMenuItem.separator())
                 
                 let cd5h = formatFullCountdown(from: quota.fiveHourResetTime)
-                var title5h = "\(getStatusEmoji(percent: quota.fiveHourPercent)) Límite 5 Horas: \(quota.fiveHourPercent)%"
+                var title5h = "\(getStatusEmoji(percent: quota.fiveHourPercent)) 5-Hour Limit: \(quota.fiveHourPercent)%"
                 if let cd = cd5h { title5h += "  ⏳ \(cd.short)" }
                 menu.addItem(NSMenuItem(title: title5h, action: nil, keyEquivalent: ""))
                 if let cd = cd5h {
-                    menu.addItem(NSMenuItem(title: "      ⏳ Reset: en \(cd.detailed)", action: nil, keyEquivalent: ""))
+                    menu.addItem(NSMenuItem(title: "      ⏳ Resets in \(cd.detailed)", action: nil, keyEquivalent: ""))
                 }
                 
                 let cdWk = formatFullCountdown(from: quota.weeklyResetTime)
-                var titleWk = "\(getStatusEmoji(percent: quota.weeklyPercent)) Límite Semanal: \(quota.weeklyPercent)%"
+                var titleWk = "\(getStatusEmoji(percent: quota.weeklyPercent)) Weekly Limit: \(quota.weeklyPercent)%"
                 if let cd = cdWk { titleWk += "  ⏳ \(cd.short)" }
                 menu.addItem(NSMenuItem(title: titleWk, action: nil, keyEquivalent: ""))
                 if let cd = cdWk {
-                    menu.addItem(NSMenuItem(title: "      ⏳ Reset: en \(cd.detailed)", action: nil, keyEquivalent: ""))
+                    menu.addItem(NSMenuItem(title: "      ⏳ Resets in \(cd.detailed)", action: nil, keyEquivalent: ""))
                 }
                 menu.addItem(NSMenuItem.separator())
             }
         } else {
-            menu.addItem(NSMenuItem(title: "Cargando información de cuota...", action: nil, keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: "Loading quota information...", action: nil, keyEquivalent: ""))
             menu.addItem(NSMenuItem.separator())
         }
         
         // Format submenu
         let formatMenu = NSMenu()
         let formats: [(DisplayFormat, String)] = [
-            (.standardWithTime, "♊ 5h: 78% (1h 28m) · Sem: 38% (2d 2h)  [Recomendado]"),
-            (.standard, "♊ 5h: 78% · Sem: 38%  [Solo porcentajes]"),
-            (.compactWithTime, "♊ 78% (1h) | 38% (2d)  [Compacto con tiempo]"),
-            (.compact, "♊ 78% | 38%  [Compacto simple]"),
-            (.icons, "⚡78% · 📅38% (2d)  [Iconos]"),
-            (.weeklyOnly, "♊ Sem: 38% · ⏳ 2d 2h  [Solo Semanal]"),
-            (.fiveHourOnly, "♊ 5h: 78% · ⏳ 1h 28m  [Solo 5 Horas]"),
+            (.standardWithTime, "♊ 5h: 78% (1h 28m) · Wk: 38% (2d 2h)  [Recommended]"),
+            (.standard, "♊ 5h: 78% · Wk: 38%  [Percentages only]"),
+            (.compactWithTime, "♊ 78% (1h) | 38% (2d)  [Compact with time]"),
+            (.compact, "♊ 78% | 38%  [Compact]"),
+            (.icons, "⚡78% · 📅38% (2d)  [Icons]"),
+            (.weeklyOnly, "♊ Wk: 38% · ⏳ 2d 2h  [Weekly only]"),
+            (.fiveHourOnly, "♊ 5h: 78% · ⏳ 1h 28m  [5-hour only]"),
             (.argonOnly, "🪐 Argon: 1% · ⏳ 5d 17h  [Gemini 4 Argon]"),
-            (.lowest, "⚠️ Mín: 1% (5d 17h)  [Mínimo de todos]"),
-            (.descriptive, "Gemini: 78% (5h) · 38% (Sem)")
+            (.lowest, "⚠️ Min: 1% (5d 17h)  [Lowest of all]"),
+            (.descriptive, "Gemini: 78% (5h) · 38% (Wk)")
         ]
         
         for (fmt, title) in formats {
@@ -367,16 +367,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             formatMenu.addItem(item)
         }
         
-        let formatSubmenuItem = NSMenuItem(title: "Estilo en la Barra de Menús", action: nil, keyEquivalent: "")
+        let formatSubmenuItem = NSMenuItem(title: "Menu Bar Style", action: nil, keyEquivalent: "")
         formatSubmenuItem.submenu = formatMenu
         menu.addItem(formatSubmenuItem)
         
         // Refresh interval submenu
         let intervalMenu = NSMenu()
         let intervals: [(TimeInterval, String)] = [
-            (30.0, "Cada 30 segundos"),
-            (60.0, "Cada 1 minuto (Por defecto)"),
-            (300.0, "Cada 5 minutos")
+            (30.0, "Every 30 seconds"),
+            (60.0, "Every 1 minute (Default)"),
+            (300.0, "Every 5 minutes")
         ]
         for (sec, title) in intervals {
             let item = NSMenuItem(title: title, action: #selector(changeInterval(_:)), keyEquivalent: "")
@@ -384,14 +384,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = (abs(refreshInterval - sec) < 1.0) ? .on : .off
             intervalMenu.addItem(item)
         }
-        let intervalSubmenuItem = NSMenuItem(title: "Frecuencia de Actualización", action: nil, keyEquivalent: "")
+        let intervalSubmenuItem = NSMenuItem(title: "Refresh Interval", action: nil, keyEquivalent: "")
         intervalSubmenuItem.submenu = intervalMenu
         menu.addItem(intervalSubmenuItem)
         
         menu.addItem(NSMenuItem.separator())
         
         // Refresh now item
-        let refreshItem = NSMenuItem(title: "Actualizar Ahora", action: #selector(fetchData), keyEquivalent: "r")
+        let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(fetchData), keyEquivalent: "r")
         refreshItem.keyEquivalentModifierMask = .command
         menu.addItem(refreshItem)
         
@@ -400,7 +400,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let formatter = DateFormatter()
             formatter.dateFormat = "HH:mm:ss"
             let timeStr = formatter.string(from: quota.lastUpdated)
-            let timeItem = NSMenuItem(title: "Actualizado: \(timeStr)", action: nil, keyEquivalent: "")
+            let timeItem = NSMenuItem(title: "Updated: \(timeStr)", action: nil, keyEquivalent: "")
             timeItem.isEnabled = false
             menu.addItem(timeItem)
         }
@@ -408,12 +408,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         
         // Launch at Login
-        let launchItem = NSMenuItem(title: "Iniciar al encender la Mac", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        let launchItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
         launchItem.state = isLaunchAtLoginEnabled() ? .on : .off
         menu.addItem(launchItem)
         
         // Quit item
-        let quitItem = NSMenuItem(title: "Salir de Gemini Quota", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Gemini Quota", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = .command
         menu.addItem(quitItem)
         
@@ -427,24 +427,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(header)
         menu.addItem(NSMenuItem.separator())
         
-        let errItem = NSMenuItem(title: "Estado: Desconectado", action: nil, keyEquivalent: "")
+        let errItem = NSMenuItem(title: "Status: Disconnected", action: nil, keyEquivalent: "")
         errItem.attributedTitle = NSAttributedString(
-            string: "⚠️ Estado: \(error)",
+            string: "⚠️ Status: \(error)",
             attributes: [.foregroundColor: NSColor.systemRed]
         )
         menu.addItem(errItem)
         
-        let tipItem = NSMenuItem(title: "Asegúrate de que Antigravity IDE esté abierto.", action: nil, keyEquivalent: "")
+        let tipItem = NSMenuItem(title: "Make sure Antigravity IDE is open.", action: nil, keyEquivalent: "")
         tipItem.isEnabled = false
         menu.addItem(tipItem)
         
         menu.addItem(NSMenuItem.separator())
-        let refreshItem = NSMenuItem(title: "Reintentar Conexión", action: #selector(fetchData), keyEquivalent: "r")
+        let refreshItem = NSMenuItem(title: "Retry Connection", action: #selector(fetchData), keyEquivalent: "r")
         refreshItem.keyEquivalentModifierMask = .command
         menu.addItem(refreshItem)
         
         menu.addItem(NSMenuItem.separator())
-        let quitItem = NSMenuItem(title: "Salir", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = .command
         menu.addItem(quitItem)
         

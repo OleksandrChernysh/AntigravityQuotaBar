@@ -1,53 +1,53 @@
 # Antigravity Counter ♊ (macOS Menu Bar App)
 
-Aplicación nativa para la barra de menús de macOS (Menu Bar / Status Bar) que muestra en tiempo real, junto al reloj de tu Mac, los porcentajes restantes de cuota de **Google Antigravity**:
-- **Gemini 5-Hour Limit Remaining** (Ventana de 5 horas)
-- **Gemini Weekly Limit Remaining** (Límite semanal)
-- **Claude & GPT Models Quota** (Ventana de 5 horas y ciclo semanal)
-- **Gemini 4 Argon Quota** (Nuevo modelo frontera con cuota semanal independiente)
+Native macOS menu bar (status bar) app that shows, in real time next to your Mac's clock, the remaining quota percentages for **Google Antigravity**:
+- **Gemini 5-Hour Limit Remaining** (5-hour window)
+- **Gemini Weekly Limit Remaining** (weekly limit)
+- **Claude & GPT Models Quota** (5-hour window and weekly cycle)
+- **Gemini 4 Argon Quota** (new frontier model with its own independent weekly quota)
 
 ---
 
-## ✨ Características
+## ✨ Features
 
-- **Ultra ligero y nativo**: Escrito en Swift con Cocoa / AppKit (sin Electron, sin dependencias pesadas).
-- **Directo a la fuente**: Detecta dinámicamente los daemons locales de Antigravity (`agy` o `language_server`) vía Connect-RPC en milisegundos con soporte HTTP/HTTPS y tokens CSRF.
-- **Visualización en la barra**:
-  - `♊ 5h: 78% (1h 28m) · Sem: 38% (2d 2h)` (o en 10 estilos configurables con o sin cuenta regresiva).
-- **Menú interactivo desplegable**:
-  - Agrupación dinámica de modelos: **Google Gemini**, **Claude and GPT**, y **Gemini 4 Argon**.
-  - Indicadores de salud con emojis de colores (🟢 > 50%, 🟡 20-50%, 🔴 < 20%).
-  - **Cuenta regresiva exacta de reset**: Muestra los días y horas restantes en cada métrica (ej. `⏳ 2d 2h`) y fecha/hora exacta (`Reset: en 2 días, 2 horas (sáb 7 nov, 01:31)`).
-  - Botón de refresco manual (`⌘R`).
-  - Frecuencia de actualización configurable (30s, 1m, 5m).
-  - Opción de inicio automático al encender la Mac.
-- **Carga instantánea en el arranque**: Guarda en caché local (`UserDefaults`) los últimos valores para mostrarlos de inmediato al reiniciar el equipo.
-
----
-
-## 🛠️ Requisitos
-
-- macOS 13.0 (Ventura) o posterior (probado en Apple Silicon M1/M2/M3/M4).
-- Antigravity IDE instalado.
-- Herramientas de línea de comandos de Xcode (`swiftc`).
+- **Ultra-lightweight and native**: Written in Swift with Cocoa / AppKit (no Electron, no heavy dependencies).
+- **Straight to the source**: Dynamically detects the local Antigravity daemons (`agy` or `language_server`) via Connect-RPC in milliseconds, with HTTP/HTTPS and CSRF token support.
+- **Menu bar display**:
+  - `♊ 5h: 78% (1h 28m) · Wk: 38% (2d 2h)` (or 10 configurable styles, with or without countdown).
+- **Interactive drop-down menu**:
+  - Dynamic model grouping: **Google Gemini**, **Claude and GPT**, and **Gemini 4 Argon**.
+  - Color emoji health indicators (🟢 ≥ 50%, 🟡 20–50%, 🔴 < 20%).
+  - **Exact reset countdown**: Shows the days and hours remaining for each metric (e.g. `⏳ 2d 2h`) plus the exact date/time (`Resets in 2 days, 2 hours (Sat 7 Nov, 01:31)`).
+  - Manual refresh button (`⌘R`).
+  - Configurable refresh interval (30s, 1m, 5m).
+  - Option to launch automatically at login.
+- **Instant startup**: Caches the latest values locally (`UserDefaults`) so they appear immediately after a restart.
 
 ---
 
-## 🚀 Compilación e Instalación
+## 🛠️ Requirements
 
-1. Clona el repositorio:
+- macOS 13.0 (Ventura) or later (tested on Apple Silicon M1/M2/M3/M4).
+- Antigravity IDE installed.
+- Xcode Command Line Tools (`swiftc`).
+
+---
+
+## 🚀 Build & Install
+
+1. Clone the repository:
    ```bash
-   git clone https://github.com/alainjpdev/antigravityCounter.git
-   cd antigravityCounter
+   git clone https://github.com/cursoraiht-maker/gemini_antigravity.git
+   cd gemini_antigravity
    ```
 
-2. Compila la aplicación:
+2. Build the app:
    ```bash
    chmod +x GeminiQuotaBar/build.sh
    ./GeminiQuotaBar/build.sh
    ```
 
-3. Instala la app en tu carpeta de Aplicaciones:
+3. Install the app into your Applications folder:
    ```bash
    cp -r GeminiQuotaBar/build/GeminiQuotaBar.app /Applications/
    open /Applications/GeminiQuotaBar.app
@@ -55,15 +55,15 @@ Aplicación nativa para la barra de menús de macOS (Menu Bar / Status Bar) que 
 
 ---
 
-## 📄 Estructura del Proyecto
+## 📄 Project Structure
 
 ```text
 ├── GeminiQuotaBar/
 │   ├── Sources/
-│   │   ├── AppDelegate.swift    # Lógica de la barra de menú, interfaz y LaunchAgent
-│   │   ├── QuotaFetcher.swift   # Detección de proceso y consulta Connect-RPC a Antigravity
-│   │   └── main.swift           # Punto de entrada de la aplicación accesoria
-│   └── build.sh                 # Script de compilación nativa y empaquetado .app
+│   │   ├── AppDelegate.swift    # Menu bar logic, UI, and LaunchAgent
+│   │   ├── QuotaFetcher.swift   # Process detection and Connect-RPC query to Antigravity
+│   │   └── main.swift           # Entry point for the accessory app
+│   └── build.sh                 # Native build script and .app packaging
 ├── .gitignore
 └── README.md
 ```
