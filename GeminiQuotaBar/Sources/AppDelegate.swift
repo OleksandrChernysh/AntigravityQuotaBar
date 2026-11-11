@@ -381,7 +381,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                               symbolColor: healthColor(percent: percent),
                               symbolSize: 9,
                               indent: 1,
-                              attributes: [.font: NSFont.menuFont(ofSize: 13)]))
+                              attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
 
         // Exact countdown detail line: days and hours
         if let cd = countdown {
@@ -389,14 +389,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(makeItem(resetDetail,
                                   indent: 2,
                                   attributes: [
-                                    .font: NSFont.systemFont(ofSize: 11),
+                                    .font: NSFont.systemFont(ofSize: 12),
                                     .foregroundColor: NSColor.secondaryLabelColor
                                   ]))
         } else if !description.isEmpty {
             menu.addItem(makeItem(description,
                                   indent: 2,
                                   attributes: [
-                                    .font: NSFont.systemFont(ofSize: 11),
+                                    .font: NSFont.systemFont(ofSize: 12),
                                     .foregroundColor: NSColor.secondaryLabelColor
                                   ]))
         }
@@ -404,20 +404,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func buildMenu() {
         let menu = NSMenu()
+        // Info rows have no action; without this AppKit draws them as disabled (faded gray).
+        menu.autoenablesItems = false
 
         if let quota = latestQuota {
             if !quota.allGroups.isEmpty {
                 for group in quota.allGroups {
                     menu.addItem(makeItem(group.displayName,
                                           icon: groupIcon(group.displayName),
-                                          attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
+                                          attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
 
                     // Skip the Argon plan note ("...available on Ultra plans")
                     if !group.description.isEmpty && !group.displayName.contains("Argon") {
                         menu.addItem(makeItem(group.description,
                                               indent: 1,
                                               attributes: [
-                                                .font: NSFont.systemFont(ofSize: 11),
+                                                .font: NSFont.systemFont(ofSize: 12),
                                                 .foregroundColor: NSColor.secondaryLabelColor
                                               ]))
                     }
@@ -436,7 +438,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // Fallback rendering
                 menu.addItem(makeItem("Google Gemini Quota",
                                       icon: .gemini,
-                                      attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
+                                      attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
                 addBucketItems(to: menu, name: "5h Limit", percent: quota.fiveHourPercent,
                                resetTime: quota.fiveHourResetTime, description: "")
                 addBucketItems(to: menu, name: "Weekly Limit", percent: quota.weeklyPercent,
@@ -493,7 +495,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             formatter.dateFormat = "HH:mm:ss"
             let timeStr = formatter.string(from: quota.lastUpdated)
             let timeItem = makeItem("Updated: \(timeStr)", icon: .sf("clock.arrow.circlepath"))
-            timeItem.isEnabled = false
             menu.addItem(timeItem)
         }
 
@@ -514,9 +515,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func buildErrorMenu(error: String) {
         let menu = NSMenu()
+        // Info rows have no action; without this AppKit draws them as disabled (faded gray).
+        menu.autoenablesItems = false
         menu.addItem(makeItem("Gemini Quota Bar",
                               icon: .antigravity,
-                              attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
+                              attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(makeItem("Status: \(error)",
@@ -525,7 +528,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                               attributes: [.foregroundColor: NSColor.systemRed]))
 
         let tipItem = makeItem("Make sure Antigravity IDE is open.", icon: .sf("info.circle"))
-        tipItem.isEnabled = false
         menu.addItem(tipItem)
 
         menu.addItem(NSMenuItem.separator())
