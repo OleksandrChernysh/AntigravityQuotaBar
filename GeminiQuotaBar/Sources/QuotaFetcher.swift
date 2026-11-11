@@ -258,7 +258,7 @@ class QuotaFetcher {
                                 
                                 var defaultName = "Limit"
                                 if bWindow == "5h" || bId.contains("5h") || bWindow.contains("session") {
-                                    defaultName = "5-Hour Limit"
+                                    defaultName = "5h Limit"
                                 } else if bWindow == "weekly" || bId.contains("weekly") {
                                     defaultName = "Weekly Limit"
                                 }

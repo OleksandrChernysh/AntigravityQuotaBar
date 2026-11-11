@@ -367,7 +367,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func addBucketItems(to menu: NSMenu, name: String, percent: Int, resetTime: String, description: String) {
         let countdown = formatFullCountdown(from: resetTime)
 
-        var itemTitle = "\(name): \(percent)%"
+        // Shorten "Five Hour" / "5-Hour" / "5 Hours" to "5h"
+        let shortName = name.replacingOccurrences(of: #"(?i)\b(five|5)[ -]hours?\b"#,
+                                                  with: "5h",
+                                                  options: .regularExpression)
+        var itemTitle = "\(shortName): \(percent)%"
         if let cd = countdown {
             itemTitle += "  ·  \(cd.short)"
         }
@@ -408,7 +412,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                           icon: groupIcon(group.displayName),
                                           attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
 
-                    if !group.description.isEmpty {
+                    // Skip the Argon plan note ("...available on Ultra plans")
+                    if !group.description.isEmpty && !group.displayName.contains("Argon") {
                         menu.addItem(makeItem(group.description,
                                               indent: 1,
                                               attributes: [
@@ -432,7 +437,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(makeItem("Google Gemini Quota",
                                       icon: .gemini,
                                       attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
-                addBucketItems(to: menu, name: "5-Hour Limit", percent: quota.fiveHourPercent,
+                addBucketItems(to: menu, name: "5h Limit", percent: quota.fiveHourPercent,
                                resetTime: quota.fiveHourResetTime, description: "")
                 addBucketItems(to: menu, name: "Weekly Limit", percent: quota.weeklyPercent,
                                resetTime: quota.weeklyResetTime, description: "")
