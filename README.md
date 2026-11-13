@@ -1,57 +1,72 @@
-# Antigravity Counter ♊ (macOS Menu Bar App)
+# AntigravityQuotaBar (macOS Menu Bar App)
 
-Native macOS menu bar (status bar) app that shows, in real time next to your Mac's clock, the remaining quota percentages for **Google Antigravity**:
-- **Gemini 5-Hour Limit Remaining** (5-hour window)
-- **Gemini Weekly Limit Remaining** (weekly limit)
-- **Claude & GPT Models Quota** (5-hour window and weekly cycle)
-- **Gemini 4 Argon Quota** (new frontier model with its own independent weekly quota)
+Native macOS menu bar app that displays your remaining **Google Antigravity** model quotas in real time next to your Mac's clock, automatically adapts to the model you currently have selected in the Antigravity app, and warns you before you burn through your daily or 5-hour limits.
+
+> **Upstream / Fork Attribution:**  
+> Forked and heavily customized from [`cursoraiht-maker/gemini_antigravity`](https://github.com/cursoraiht-maker/gemini_antigravity) (which was originally based on `alainjpdev/antigravityCounter`).
 
 ---
 
 ## ✨ Features
 
-- **Ultra-lightweight and native**: Written in Swift with Cocoa / AppKit (no Electron, no heavy dependencies).
-- **Straight to the source**: Dynamically detects the local Antigravity daemons (`agy` or `language_server`) via Connect-RPC in milliseconds, with HTTP/HTTPS and CSRF token support.
-- **Menu bar display**:
-  - 4 styles, each group shown with its own logo: **All, compact** (`✦ 88% | 96%  ✱ 100% | 100%  ✦ Ar 100%`), **Gemini**, **Claude and GPT Models**, **Argon**. Values are always `5h | weekly`.
-  - Menu bar icons are template images, so they adapt to light/dark mode and the menu bar tint.
-- **Interactive drop-down menu**:
-  - Dynamic model grouping: **Google Gemini**, **Claude and GPT**, and **Gemini 4 Argon**.
-  - Native macOS look: official monochrome logos for products (Antigravity, Gemini, Claude, OpenAI), SF Symbols for generic actions, and colored health dots (green ≥ 50%, yellow 20–50%, red < 20%).
-  - **Exact reset countdown**: Shows the days and hours remaining for each metric (e.g. `2d 2h`) plus the exact date/time (`Resets in 2 days, 2 hours (Sat 7 Nov, 01:31)`).
-  - Manual refresh button (`⌘R`).
-  - Configurable refresh interval (30s, 1m, 5m).
-  - Option to launch automatically at login.
-- **Instant startup**: Caches the latest values locally (`UserDefaults`) so they appear immediately after a restart.
+- **Native macOS design**:
+  - Written in Swift with AppKit / Cocoa (no Electron, minimal footprint).
+  - White macOS squircle app icon featuring the iridescent Antigravity logo and a matching quota ring.
+  - Official monochrome brand logos (Antigravity, Gemini, Claude, OpenAI) rendered as template images that adapt automatically to light and dark mode, paired with native SF Symbols for menu actions (with explicit `preferredImageVisibility = .visible` support for macOS 27+).
+- **Direct local RPC**:
+  - Discovers running Antigravity daemons (`agy` / `language_server`) and queries `RetrieveUserQuotaSummary` and `GetAvailableModels` via Connect-RPC over `127.0.0.1` with CSRF token authentication.
+- **4 Menu Bar Styles + Live Previews**:
+  - **Auto (current model)**: Automatically detects the model currently selected in the Antigravity app (via `antigravity_state.pbtxt` + `GetAvailableModels` RPC) and switches the menu bar to show that model's quota group.
+  - **All, compact**: Shows all 3 groups side by side (`✦ 88% | 96%  ✱ 100% | 100%  ✦ Ar 100%`).
+  - **Gemini**: `✦ 88% (1h) | 96% (6d)`
+  - **Claude and GPT Models**: `✱ 100% (4h) | 100% (6d)`
+  - **Argon**: `✦ Argon 100% (6d)`
+  - Style submenu shows live previews rendered with your current quota numbers.
+- **Compact Drop-Down Menu**:
+  - Tab-aligned 5-segment progress bars (`▮▮▮▯▯`), percentages (`5h` and `Wk`), and short reset countdowns (`1h18m`, `6d20h`).
+  - Hover tooltips with full model lists, exact reset date/time, and today's weekly quota usage (`Used today: -X%`).
+  - Displays the currently active Antigravity model (e.g. `Model: Gemini 4 Hydrogen (Medium)`).
+- **Daily Budget & 5-Hour Alerts**:
+  - Sends native macOS notifications (`UNUserNotificationCenter`) when any group reaches:
+    - **5h limit exhausted** (≤ 5% remaining, once per 5h cycle), or
+    - **≥ 20% of weekly quota used today** (ideal ~20%/day pace for a 5-day work week, once per calendar day).
+  - Toggleable via **Alerts (5h & 20% Daily)** in the menu.
+- **Instant Startup & Controls**:
+  - Caches latest quotas and groups in `UserDefaults` for instant display on launch.
+  - Configurable refresh interval (`30s`, `1m`, `5m`), manual **Refresh**, and **Launch at Login** (`LaunchAgent`).
 
 ---
 
 ## 🛠️ Requirements
 
-- macOS 13.0 (Ventura) or later (tested on Apple Silicon M1/M2/M3/M4).
-- Antigravity IDE installed.
-- Xcode Command Line Tools (`swiftc`).
+- macOS 13.0 (Ventura) or later (Apple Silicon).
+- Antigravity app / IDE running locally.
+- For building from source: Xcode Command Line Tools (`swiftc`).
 
 ---
 
-## 🚀 Build & Install
+## 🚀 Install
 
+### Option 1: Download DMG (Recommended)
+1. Download `AntigravityQuotaBar-v1.0.0.dmg` from [Releases](https://github.com/OleksandrChernysh/AntigravityQuotaBar/releases).
+2. Open the `.dmg` and drag **AntigravityQuotaBar.app** to **Applications**.
+3. Launch **AntigravityQuotaBar** (if macOS Gatekeeper asks on first run, right-click → **Open**).
+
+### Option 2: Build from Source
 1. Clone the repository:
    ```bash
-   git clone https://github.com/cursoraiht-maker/gemini_antigravity.git
-   cd gemini_antigravity
+   git clone https://github.com/OleksandrChernysh/AntigravityQuotaBar.git
+   cd AntigravityQuotaBar
    ```
-
-2. Build the app:
+2. Build the `.app` bundle:
    ```bash
    chmod +x GeminiQuotaBar/build.sh
    ./GeminiQuotaBar/build.sh
    ```
-
-3. Install the app into your Applications folder:
+3. Install and launch:
    ```bash
-   cp -r GeminiQuotaBar/build/GeminiQuotaBar.app /Applications/
-   open /Applications/GeminiQuotaBar.app
+   cp -R GeminiQuotaBar/build/AntigravityQuotaBar.app /Applications/
+   open /Applications/AntigravityQuotaBar.app
    ```
 
 ---
@@ -61,11 +76,22 @@ Native macOS menu bar (status bar) app that shows, in real time next to your Mac
 ```text
 ├── GeminiQuotaBar/
 │   ├── Sources/
-│   │   ├── AppDelegate.swift    # Menu bar logic, UI, and LaunchAgent
-│   │   ├── QuotaFetcher.swift   # Process detection and Connect-RPC query to Antigravity
-│   │   └── main.swift           # Entry point for the accessory app
-│   ├── Resources/Icons/         # Brand logos (SVG, template images) + CREDITS.txt
-│   └── build.sh                 # Native build script and .app packaging
+│   │   ├── AppDelegate.swift        # Menu bar rendering, styles, LaunchAgent, and UI
+│   │   ├── QuotaFetcher.swift       # Daemon discovery and Connect-RPC quota queries
+│   │   ├── ModelTracker.swift       # Active model detection via state file + GetAvailableModels RPC
+│   │   ├── QuotaAlertManager.swift  # 5h exhaustion & 20% daily weekly-usage macOS notifications
+│   │   └── main.swift               # Accessory app entry point
+│   ├── Resources/
+│   │   ├── AppIcon.icns             # macOS squircle icon with iridescent Antigravity logo & quota ring
+│   │   └── Icons/                   # Brand SVG template icons + CREDITS.txt
+│   └── build.sh                     # Native swiftc build script & .app packaging
 ├── .gitignore
 └── README.md
 ```
+
+---
+
+## 🙏 Credits
+
+- Upstream fork source: [`cursoraiht-maker/gemini_antigravity`](https://github.com/cursoraiht-maker/gemini_antigravity) (originally based on `alainjpdev/antigravityCounter`).
+- Brand icons: LobeHub Icons (`@lobehub/icons-static-svg`, MIT) and Simple Icons (`googlegemini`, CC0 1.0). See [CREDITS.txt](GeminiQuotaBar/Resources/Icons/CREDITS.txt).
