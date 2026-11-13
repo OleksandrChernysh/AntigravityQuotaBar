@@ -330,7 +330,7 @@ class QuotaFetcher {
         return nil
     }
     
-    private func findLanguageServerProcesses() -> [(pid: String, token: String, port: Int?)] {
+    func findLanguageServerProcesses() -> [(pid: String, token: String, port: Int?)] {
         var results: [(pid: String, token: String, port: Int?)] = []
         
         // 1. Try pgrep for agy, language_server, or language-server
@@ -412,7 +412,7 @@ class QuotaFetcher {
         return results
     }
     
-    private func findListeningPorts(pid: String) -> [Int] {
+    func findListeningPorts(pid: String) -> [Int] {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         task.arguments = ["-a", "-p", pid, "-iTCP", "-sTCP:LISTEN", "-P", "-n"]

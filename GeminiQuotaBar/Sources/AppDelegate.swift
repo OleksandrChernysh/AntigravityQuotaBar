@@ -551,62 +551,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// current code to a group and to view / clear the learned code table.
     func makeModelItem() -> NSMenuItem {
         let tracker = ModelTracker.shared
-        let table = tracker.table
-        let sub = NSMenu()
-        sub.autoenablesItems = false
-
-        let item: NSMenuItem
-        if let code = tracker.currentCode {
-            let short = ModelTracker.shortCode(code)
-            let kind = table[code]
-            item = makeItem("Model: \(short) → \(kind?.title ?? "not set")", icon: kind?.icon ?? .sf("questionmark.circle"))
-
-            let header = makeItem("Current App model \(short) is:")
-            sub.addItem(header)
-            for k in [GroupKind.gemini, .claudeGPT, .argon] {
-                let a = makeItem(k.title, icon: k.icon, action: #selector(assignModel(_:)))
-                a.representedObject = k.rawValue
-                a.state = (kind == k) ? .on : .off
-                sub.addItem(a)
-            }
-            let none = makeItem("Not set", action: #selector(assignModel(_:)))
-            none.representedObject = ""
-            none.state = (kind == nil) ? .on : .off
-            sub.addItem(none)
+        if let name = tracker.currentDisplayName, let kind = tracker.currentKind {
+            return makeItem("Model: \(name)", icon: kind.icon)
+        } else if let code = tracker.currentCode {
+            let short = code.replacingOccurrences(of: "MODEL_PLACEHOLDER_", with: "")
+            let kind = tracker.currentKind
+            return makeItem("Model: \(short)", icon: kind?.icon ?? .sf("questionmark.circle"))
         } else {
-            item = makeItem("Model: App not detected", icon: .sf("questionmark.circle"))
-            let info = makeItem("Open the Antigravity App and pick a model")
-            sub.addItem(info)
+            return makeItem("Model: App not detected", icon: .sf("questionmark.circle"))
         }
-
-        // Learned code table
-        sub.addItem(NSMenuItem.separator())
-        let tableHeader = makeItem(table.isEmpty ? "Code table is empty" : "Code table:")
-        sub.addItem(tableHeader)
-        for (code, kind) in table.sorted(by: { $0.key < $1.key }) {
-            let row = makeItem("\(ModelTracker.shortCode(code))  →  \(kind.title)", icon: kind.icon, indent: 1)
-            sub.addItem(row)
-        }
-        if !table.isEmpty {
-            sub.addItem(makeItem("Clear Code Table", icon: .sf("trash"), action: #selector(clearModelTable)))
-        }
-
-        item.submenu = sub
-        return item
-    }
-
-    @objc func assignModel(_ sender: NSMenuItem) {
-        guard let code = ModelTracker.shared.currentCode,
-              let raw = sender.representedObject as? String else { return }
-        ModelTracker.shared.assign(code, to: GroupKind(rawValue: raw))
-        if let quota = latestQuota { updateStatusBarTitle(quota: quota) }
-        buildMenu()
-    }
-
-    @objc func clearModelTable() {
-        ModelTracker.shared.clearTable()
-        if let quota = latestQuota { updateStatusBarTitle(quota: quota) }
-        buildMenu()
     }
 
     func buildMenu() {
