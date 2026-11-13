@@ -36,6 +36,8 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <dict>
     <key>CFBundleExecutable</key>
     <string>GeminiQuotaBar</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.antigravity.geminiquotabar</string>
     <key>CFBundleName</key>
@@ -54,8 +56,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 </plist>
 EOF
 
-echo "==> Copying brand icons..."
+echo "==> Copying brand icons and app icon..."
 cp "$PROJECT_DIR"/Resources/Icons/*.svg "$RESOURCES_DIR/"
+cp "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/"
 
 echo "==> Signing the app with an ad-hoc signature..."
 codesign --force --deep --sign - "$APP_BUNDLE"
