@@ -94,7 +94,26 @@ func windowLabel(_ b: ModelBucketInfo) -> String {
 }
 
 /// Which product a server group belongs to.
-enum GroupKind { case gemini, claudeGPT, argon, other }
+enum GroupKind: String, CaseIterable {
+    case gemini, claudeGPT, argon, other
+
+    var title: String {
+        switch self {
+        case .gemini: return "Gemini"
+        case .claudeGPT: return "Claude and GPT Models"
+        case .argon: return "Argon"
+        case .other: return "Other"
+        }
+    }
+
+    var icon: Icon {
+        switch self {
+        case .gemini, .argon: return .gemini
+        case .claudeGPT: return .brand("claude")
+        case .other: return .antigravity
+        }
+    }
+}
 
 func groupKind(_ name: String) -> GroupKind {
     if name.contains("Argon") { return .argon }
@@ -146,6 +165,7 @@ struct StatusSegment {
 }
 
 enum DisplayFormat: Int, CaseIterable {
+    case auto = 5         // follows the model selected in the Antigravity App
     case allCompact = 0   // [Gemini] 88% | 96%  [Claude] 100% | 100%  [Gemini] Ar 100%
     case gemini = 2       // [Gemini] 88% (1h) | 96% (6d)
     case claudeGPT = 3    // [Claude] 100% (4h) | 100% (6d)
@@ -154,6 +174,7 @@ enum DisplayFormat: Int, CaseIterable {
     /// Label used in the "Style" submenu (a live preview image is shown next to it).
     var title: String {
         switch self {
+        case .auto: return "Auto (current model)"
         case .allCompact: return "All, compact"
         case .gemini: return "Gemini"
         case .claudeGPT: return "Claude and GPT Models"
@@ -174,6 +195,20 @@ enum DisplayFormat: Int, CaseIterable {
         }
 
         switch self {
+        case .auto:
+            // Model selected in the App -> its group's style; unknown -> All, compact.
+            let target: DisplayFormat?
+            switch ModelTracker.shared.currentKind {
+            case .gemini: target = .gemini
+            case .claudeGPT: target = .claudeGPT
+            case .argon: target = .argon
+            default: target = nil
+            }
+            if let t = target {
+                let segs = t.segments(quota: quota)
+                if !segs.isEmpty { return segs }
+            }
+            return DisplayFormat.allCompact.segments(quota: quota)
         case .allCompact:
             return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: false, argonLabel: "Ar") }
         case .gemini:
@@ -332,6 +367,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             setStatusBar(icon: .antigravity, text: "Connecting…")
         }
+
+        // Follow the model selected in the Antigravity App (for the Auto style)
+        ModelTracker.shared.onChange = { [weak self] in
+            guard let self = self, let quota = self.latestQuota else { return }
+            if self.currentFormat == .auto { self.updateStatusBarTitle(quota: quota) }
+            self.buildMenu()
+        }
+        ModelTracker.shared.start()
 
         buildMenu()
         fetchData()
@@ -504,6 +547,68 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// "Model: M319 → Claude and GPT Models" with a submenu to assign the
+    /// current code to a group and to view / clear the learned code table.
+    func makeModelItem() -> NSMenuItem {
+        let tracker = ModelTracker.shared
+        let table = tracker.table
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+
+        let item: NSMenuItem
+        if let code = tracker.currentCode {
+            let short = ModelTracker.shortCode(code)
+            let kind = table[code]
+            item = makeItem("Model: \(short) → \(kind?.title ?? "not set")", icon: kind?.icon ?? .sf("questionmark.circle"))
+
+            let header = makeItem("Current App model \(short) is:")
+            sub.addItem(header)
+            for k in [GroupKind.gemini, .claudeGPT, .argon] {
+                let a = makeItem(k.title, icon: k.icon, action: #selector(assignModel(_:)))
+                a.representedObject = k.rawValue
+                a.state = (kind == k) ? .on : .off
+                sub.addItem(a)
+            }
+            let none = makeItem("Not set", action: #selector(assignModel(_:)))
+            none.representedObject = ""
+            none.state = (kind == nil) ? .on : .off
+            sub.addItem(none)
+        } else {
+            item = makeItem("Model: App not detected", icon: .sf("questionmark.circle"))
+            let info = makeItem("Open the Antigravity App and pick a model")
+            sub.addItem(info)
+        }
+
+        // Learned code table
+        sub.addItem(NSMenuItem.separator())
+        let tableHeader = makeItem(table.isEmpty ? "Code table is empty" : "Code table:")
+        sub.addItem(tableHeader)
+        for (code, kind) in table.sorted(by: { $0.key < $1.key }) {
+            let row = makeItem("\(ModelTracker.shortCode(code))  →  \(kind.title)", icon: kind.icon, indent: 1)
+            sub.addItem(row)
+        }
+        if !table.isEmpty {
+            sub.addItem(makeItem("Clear Code Table", icon: .sf("trash"), action: #selector(clearModelTable)))
+        }
+
+        item.submenu = sub
+        return item
+    }
+
+    @objc func assignModel(_ sender: NSMenuItem) {
+        guard let code = ModelTracker.shared.currentCode,
+              let raw = sender.representedObject as? String else { return }
+        ModelTracker.shared.assign(code, to: GroupKind(rawValue: raw))
+        if let quota = latestQuota { updateStatusBarTitle(quota: quota) }
+        buildMenu()
+    }
+
+    @objc func clearModelTable() {
+        ModelTracker.shared.clearTable()
+        if let quota = latestQuota { updateStatusBarTitle(quota: quota) }
+        buildMenu()
+    }
+
     func buildMenu() {
         let menu = NSMenu()
         // Info rows have no action; without this AppKit draws them as disabled (faded gray).
@@ -545,6 +650,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let formatSubmenuItem = makeItem("Style", icon: .sf("menubar.rectangle"))
         formatSubmenuItem.submenu = formatMenu
         menu.addItem(formatSubmenuItem)
+
+        // Current App model + model code table (used by the Auto style)
+        menu.addItem(makeModelItem())
 
         // Refresh interval submenu
         let intervalMenu = NSMenu()

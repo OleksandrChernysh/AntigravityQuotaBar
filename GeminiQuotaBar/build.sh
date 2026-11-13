@@ -21,6 +21,7 @@ swiftc \
     -target arm64-apple-macosx13.0 \
     -framework Cocoa \
     "$PROJECT_DIR/Sources/QuotaFetcher.swift" \
+    "$PROJECT_DIR/Sources/ModelTracker.swift" \
     "$PROJECT_DIR/Sources/AppDelegate.swift" \
     "$PROJECT_DIR/Sources/main.swift" \
     -o "$MACOS_DIR/GeminiQuotaBar"
