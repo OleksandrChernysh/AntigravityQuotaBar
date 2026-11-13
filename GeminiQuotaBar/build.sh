@@ -20,8 +20,10 @@ swiftc \
     -module-cache-path /tmp/module-cache \
     -target arm64-apple-macosx13.0 \
     -framework Cocoa \
+    -framework UserNotifications \
     "$PROJECT_DIR/Sources/QuotaFetcher.swift" \
     "$PROJECT_DIR/Sources/ModelTracker.swift" \
+    "$PROJECT_DIR/Sources/QuotaAlertManager.swift" \
     "$PROJECT_DIR/Sources/AppDelegate.swift" \
     "$PROJECT_DIR/Sources/main.swift" \
     -o "$MACOS_DIR/GeminiQuotaBar"

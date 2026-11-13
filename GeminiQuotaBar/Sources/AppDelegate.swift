@@ -368,6 +368,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             setStatusBar(icon: .antigravity, text: "Connecting…")
         }
 
+        QuotaAlertManager.shared.setup()
+
         // Follow the model selected in the Antigravity App (for the Auto style)
         ModelTracker.shared.onChange = { [weak self] in
             guard let self = self, let quota = self.latestQuota else { return }
@@ -399,6 +401,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             switch result {
             case .success(let quota):
                 self.latestQuota = quota
+                QuotaAlertManager.shared.evaluate(quota: quota)
                 // Cache last values so they show instantly on next reboot
                 UserDefaults.standard.setValue(quota.fiveHourPercent, forKey: "Last5h")
                 UserDefaults.standard.setValue(quota.weeklyPercent, forKey: "LastWeekly")
@@ -541,6 +544,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 var tip = [group.displayName + (models.isEmpty ? "" : " (\(models))")]
                 if let cd = cd { tip.append("\(b.displayName): resets in \(cd.detailed) (\(cd.absolute))") }
                 else if !b.description.isEmpty { tip.append(b.description) }
+                if windowLabel(b) == "Wk" {
+                    let used = QuotaAlertManager.shared.weeklyUsedToday(for: group.displayName, currentWeeklyPercent: b.percent)
+                    if used > 0 { tip.append("Used today: -\(used)%") }
+                }
                 item.toolTip = tip.joined(separator: "\n")
                 menu.addItem(item)
             }
@@ -643,6 +650,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Quota alerts toggle (5h exhausted or >=20% weekly used today)
+        let alertsItem = makeItem("Alerts (5h & 20% Daily)", icon: .sf("bell"), action: #selector(toggleAlerts(_:)))
+        alertsItem.state = QuotaAlertManager.shared.isEnabled ? .on : .off
+        menu.addItem(alertsItem)
+
         // Launch at Login
         let launchItem = makeItem("Launch at Login", icon: .sf("power"), action: #selector(toggleLaunchAtLogin(_:)))
         launchItem.state = isLaunchAtLoginEnabled() ? .on : .off
@@ -699,6 +711,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshInterval = interval
         UserDefaults.standard.setValue(interval, forKey: "RefreshInterval")
         startTimer()
+        buildMenu()
+    }
+
+    @objc func toggleAlerts(_ sender: NSMenuItem) {
+        QuotaAlertManager.shared.isEnabled.toggle()
         buildMenu()
     }
 
