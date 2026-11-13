@@ -17,13 +17,6 @@ func symbol(_ name: String,
     return base.withSymbolConfiguration(config)
 }
 
-/// System health color for a remaining-quota percentage.
-func healthColor(percent: Int) -> NSColor {
-    if percent >= 50 { return .systemGreen }
-    if percent >= 20 { return .systemYellow }
-    return .systemRed
-}
-
 /// An icon is either a system SF Symbol (for generic concepts like time, refresh, quit)
 /// or one or more official brand logos bundled in Contents/Resources (for products).
 enum Icon {
@@ -78,10 +71,48 @@ func groupIcon(_ groupName: String) -> Icon {
     if groupName.contains("Gemini") || groupName.contains("Argon") { return .gemini }
     let hasClaude = groupName.contains("Claude")
     let hasGPT = groupName.contains("GPT") || groupName.contains("OpenAI")
-    if hasClaude && hasGPT { return .brands(["claude", "openai"]) }
     if hasClaude { return .brand("claude") }
     if hasGPT { return .brand("openai") }
     return .antigravity
+}
+
+/// "Gemini Models" -> "Gemini", "Claude and GPT models" -> "Claude", "Gemini 4 Argon" -> "Argon".
+func shortGroupName(_ name: String) -> String {
+    if name.contains("Argon") { return "Argon" }
+    if name.contains("Gemini") { return "Gemini" }
+    if name.contains("Claude") { return "Claude" }
+    if name.contains("GPT") { return "GPT" }
+    return name.split(separator: " ").first.map(String.init) ?? name
+}
+
+/// "5h" / "Wk" label for a bucket's time window.
+func windowLabel(_ b: ModelBucketInfo) -> String {
+    let w = b.window.lowercased(), id = b.id.lowercased(), n = b.displayName.lowercased()
+    if w == "5h" || w.contains("session") || id.contains("5h") || n.contains("5h") || n.contains("five") { return "5h" }
+    if w.contains("week") || id.contains("weekly") || n.contains("week") { return "Wk" }
+    return String(b.displayName.prefix(2))
+}
+
+/// The single most-depleted limit across all model groups.
+func findBottleneck(_ q: GeminiQuota) -> (label: String, percent: Int, resetTime: String)? {
+    var best: (label: String, percent: Int, resetTime: String)?
+    func consider(_ label: String, _ p: Int, _ r: String) {
+        if best == nil || p < best!.percent { best = (label, p, r) }
+    }
+    if !q.allGroups.isEmpty {
+        for g in q.allGroups {
+            let name = shortGroupName(g.displayName)
+            for b in g.buckets {
+                consider(g.buckets.count > 1 ? "\(name) \(windowLabel(b))" : name, b.percent, b.resetTime)
+            }
+        }
+    } else {
+        // Cached values at launch (no group details yet)
+        consider("Gemini 5h", q.fiveHourPercent, q.fiveHourResetTime)
+        consider("Gemini Wk", q.weeklyPercent, q.weeklyResetTime)
+        if let a = q.argonWeeklyPercent { consider("Argon", a, q.argonResetTime ?? "") }
+    }
+    return best
 }
 
 enum DisplayFormat: Int, CaseIterable {
@@ -95,6 +126,7 @@ enum DisplayFormat: Int, CaseIterable {
     case argonOnly = 7        // [Gemini] Argon: 1% · 5d 17h
     case lowest = 8           // [triangle] Min: 1% (5d 17h)
     case descriptive = 9      // [Gemini] Gemini: 78% (5h) · 38% (Wk)
+    case bottleneck = 10      // [Antigravity] Argon 1% · 5d17h  (lowest limit across all models)
 
     /// Icon shown in the menu bar, to the left of the text.
     /// The app itself is identified by the Antigravity logo; formats focused on
@@ -124,6 +156,7 @@ enum DisplayFormat: Int, CaseIterable {
         case .argonOnly: return "Argon: 1% · 5d 17h  — Gemini 4 Argon"
         case .lowest: return "Min: 1% (5d 17h)  — Lowest of all"
         case .descriptive: return "Gemini: 78% (5h) · 38% (Wk)"
+        case .bottleneck: return "Argon 1% · 5d17h  — Bottleneck (lowest of all models)"
         }
     }
 
@@ -176,6 +209,10 @@ enum DisplayFormat: Int, CaseIterable {
             return "Min: \(minP)%\(cdStr)"
         case .descriptive:
             return "Gemini: \(quota.fiveHourPercent)% (5h) · \(quota.weeklyPercent)% (Wk)"
+        case .bottleneck:
+            guard let b = findBottleneck(quota) else { return "" }
+            let cd = formatShortCountdown(from: b.resetTime).replacingOccurrences(of: " ", with: "")
+            return "\(b.label) \(b.percent)%" + (cd.isEmpty ? "" : " · \(cd)")
         }
     }
 }
@@ -368,79 +405,86 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    func addBucketItems(to menu: NSMenu, name: String, percent: Int, resetTime: String, description: String) {
-        let countdown = formatFullCountdown(from: resetTime)
-
-        // Shorten "Five Hour" / "5-Hour" / "5 Hours" to "5h"
-        let shortName = name.replacingOccurrences(of: #"(?i)\b(five|5)[ -]hours?\b"#,
-                                                  with: "5h",
-                                                  options: .regularExpression)
-        var itemTitle = "\(shortName): \(percent)%"
-        if let cd = countdown {
-            itemTitle += "  ·  \(cd.short)"
-        }
-        // Colored dot = warning indicator, shown only when quota is low
-        // (yellow 20–50%, red < 20%); healthy rows (>= 50%) get no dot.
-        menu.addItem(makeItem(itemTitle,
-                              icon: percent >= 50 ? nil : .sf("circle.fill"),
-                              symbolColor: healthColor(percent: percent),
-                              symbolSize: 9,
-                              indent: 1,
-                              attributes: [.font: NSFont.menuFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
-
-        // Exact countdown detail line: days and hours
-        if let cd = countdown {
-            let resetDetail = "Resets in \(cd.detailed)  (\(cd.absolute))"
-            menu.addItem(makeItem(resetDetail,
-                                  indent: 2,
-                                  attributes: [
-                                    .font: NSFont.systemFont(ofSize: 12),
-                                    .foregroundColor: NSColor.secondaryLabelColor
-                                  ]))
-        } else if !description.isEmpty {
-            menu.addItem(makeItem(description,
-                                  indent: 2,
-                                  attributes: [
-                                    .font: NSFont.systemFont(ofSize: 12),
-                                    .foregroundColor: NSColor.secondaryLabelColor
-                                  ]))
-        }
+    /// 5-segment bar, each segment = 20% remaining.
+    func textBar(_ percent: Int) -> String {
+        let filled = max(0, min(5, Int((Double(percent) / 20.0).rounded())))
+        return String(repeating: "▮", count: filled) + String(repeating: "▯", count: 5 - filled)
     }
 
-    /// Group header: bold name followed by its model list in parentheses,
-    /// e.g. "Gemini Models (Gemini Flash, Gemini Pro)".
-    func makeGroupHeader(_ group: ModelGroupInfo) -> NSMenuItem {
-        // "Claude and GPT models" -> "Claude and GPT Models"
-        var name = group.displayName
-        if name.hasSuffix(" models") {
-            name = String(name.dropLast(" models".count)) + " Models"
-        }
-
-        // "Models within this group: Gemini Flash, Gemini Pro" -> "Gemini Flash, Gemini Pro".
-        // The Argon description is a plan note ("...available on Ultra plans"), so it is skipped.
-        var models = ""
+    /// Model list from a group description ("Models within this group: A, B" -> "A, B").
+    func groupModels(_ group: ModelGroupInfo) -> String {
         let desc = group.description.trimmingCharacters(in: .whitespaces)
-        if !desc.isEmpty && !group.displayName.contains("Argon") {
-            if let colon = desc.range(of: ":"), desc.lowercased().hasPrefix("models within") {
-                models = desc[colon.upperBound...].trimmingCharacters(in: .whitespaces)
-            } else {
-                models = desc
+        guard !desc.isEmpty, !group.displayName.contains("Argon") else { return "" }
+        if let colon = desc.range(of: ":"), desc.lowercased().hasPrefix("models within") {
+            return desc[colon.upperBound...].trimmingCharacters(in: .whitespaces)
+        }
+        return desc
+    }
+
+    /// One row per bucket, columns pinned with tab stops so every column
+    /// (name, window, bar, percent, countdown) lines up regardless of glyph widths:
+    ///   Gemini  5h  ▮▮▮▮▯   78%  1h28m
+    ///           Wk  ▮▮▯▯▯   38%  2d2h
+    /// Model list and exact reset time are in the row tooltip.
+    func addCompactRows(to menu: NSMenu, groups: [ModelGroupInfo]) {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        func w(_ s: String) -> CGFloat { ceil((s as NSString).size(withAttributes: [.font: font]).width) }
+
+        let names = groups.map { shortGroupName($0.displayName) }
+        let gap: CGFloat = 6
+        let nameW = names.map(w).max() ?? 0
+        let winW = max(w("5h"), w("Wk"))
+        let barW = max(w("▮▮▮▮▮"), w("▯▯▯▯▯"))
+        let pctW = w("100%")
+
+        let winX = nameW + gap
+        let barX = winX + winW + gap
+        let pctRightX = barX + barW + gap + pctW
+        let cdX = pctRightX + gap
+
+        let para = NSMutableParagraphStyle()
+        para.tabStops = [
+            NSTextTab(textAlignment: .left, location: winX),
+            NSTextTab(textAlignment: .left, location: barX),
+            NSTextTab(textAlignment: .right, location: pctRightX),
+            NSTextTab(textAlignment: .left, location: cdX)
+        ]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: para]
+
+        // Logos padded to one common width so titles stay aligned; continuation rows get a blank of that width.
+        let logos = groups.map { iconImage(groupIcon($0.displayName), size: 13) }
+        let logoW = logos.compactMap { $0?.size.width }.max() ?? 0
+        let logoH = logos.compactMap { $0?.size.height }.max() ?? 0
+        func padded(_ img: NSImage?) -> NSImage {
+            let canvas = NSImage(size: NSSize(width: logoW, height: logoH), flipped: false) { _ in
+                if let img = img {
+                    img.draw(in: NSRect(x: 0, y: (logoH - img.size.height) / 2, width: img.size.width, height: img.size.height))
+                }
+                return true
+            }
+            canvas.isTemplate = true
+            return canvas
+        }
+        let blank = padded(nil)
+
+        for (gi, (group, name)) in zip(groups, names).enumerated() {
+            let models = groupModels(group)
+            let logo = padded(logos[gi])
+            for (i, b) in group.buckets.enumerated() {
+                let cd = formatFullCountdown(from: b.resetTime)
+                let cdShort = cd?.short.replacingOccurrences(of: " ", with: "") ?? ""
+                let title = "\(i == 0 ? name : "")\t\(windowLabel(b))\t\(textBar(b.percent))\t\(b.percent)%\t\(cdShort)"
+
+                let item = makeItem(title, attributes: attrs)
+                item.image = i == 0 ? logo : blank
+                if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+                var tip = [group.displayName + (models.isEmpty ? "" : " (\(models))")]
+                if let cd = cd { tip.append("\(b.displayName): resets in \(cd.detailed) (\(cd.absolute))") }
+                else if !b.description.isEmpty { tip.append(b.description) }
+                item.toolTip = tip.joined(separator: "\n")
+                menu.addItem(item)
             }
         }
-
-        let item = makeItem(name, icon: groupIcon(group.displayName))
-        let title = NSMutableAttributedString(
-            string: name,
-            attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]
-        )
-        if !models.isEmpty {
-            title.append(NSAttributedString(
-                string: " (\(models))",
-                attributes: [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.labelColor]
-            ))
-        }
-        item.attributedTitle = title
-        return item
     }
 
     func buildMenu() {
@@ -449,31 +493,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.autoenablesItems = false
 
         if let quota = latestQuota {
-            if !quota.allGroups.isEmpty {
-                for group in quota.allGroups {
-                    menu.addItem(makeGroupHeader(group))
-
-                    for bucket in group.buckets {
-                        addBucketItems(to: menu,
-                                       name: bucket.displayName,
-                                       percent: bucket.percent,
-                                       resetTime: bucket.resetTime,
-                                       description: bucket.description)
-                    }
-
-                    menu.addItem(NSMenuItem.separator())
-                }
-            } else {
-                // Fallback rendering
-                menu.addItem(makeItem("Google Gemini Quota",
-                                      icon: .gemini,
-                                      attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
-                addBucketItems(to: menu, name: "5h Limit", percent: quota.fiveHourPercent,
-                               resetTime: quota.fiveHourResetTime, description: "")
-                addBucketItems(to: menu, name: "Weekly Limit", percent: quota.weeklyPercent,
-                               resetTime: quota.weeklyResetTime, description: "")
-                menu.addItem(NSMenuItem.separator())
-            }
+            let groups = quota.allGroups.isEmpty
+                ? [ModelGroupInfo(displayName: "Gemini", description: "", buckets: [
+                    ModelBucketInfo(id: "5h", displayName: "5h Limit", window: "5h",
+                                    percent: quota.fiveHourPercent, resetTime: quota.fiveHourResetTime, description: ""),
+                    ModelBucketInfo(id: "weekly", displayName: "Weekly Limit", window: "weekly",
+                                    percent: quota.weeklyPercent, resetTime: quota.weeklyResetTime, description: "")
+                  ])]
+                : quota.allGroups
+            addCompactRows(to: menu, groups: groups)
+            menu.addItem(NSMenuItem.separator())
         } else {
             menu.addItem(makeItem("Loading quota information…", icon: .sf("hourglass")))
             menu.addItem(NSMenuItem.separator())
@@ -490,7 +519,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             formatMenu.addItem(item)
         }
 
-        let formatSubmenuItem = makeItem("Menu Bar Style", icon: .sf("menubar.rectangle"))
+        let formatSubmenuItem = makeItem("Style", icon: .sf("menubar.rectangle"))
         formatSubmenuItem.submenu = formatMenu
         menu.addItem(formatSubmenuItem)
 
@@ -507,25 +536,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = (abs(refreshInterval - sec) < 1.0) ? .on : .off
             intervalMenu.addItem(item)
         }
-        let intervalSubmenuItem = makeItem("Refresh Interval", icon: .sf("timer"))
+        let intervalSubmenuItem = makeItem("Interval", icon: .sf("timer"))
         intervalSubmenuItem.submenu = intervalMenu
         menu.addItem(intervalSubmenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        // Refresh now item
-        let refreshItem = makeItem("Refresh Now", icon: .sf("arrow.clockwise"), action: #selector(fetchData), key: "r")
-        refreshItem.keyEquivalentModifierMask = .command
-        menu.addItem(refreshItem)
-
-        // Last updated time
+        // Refresh, with last-updated time on the same row
+        var refreshTitle = "Refresh"
         if let quota = latestQuota {
             let formatter = DateFormatter()
-            formatter.dateFormat = "HH:mm:ss"
-            let timeStr = formatter.string(from: quota.lastUpdated)
-            let timeItem = makeItem("Updated: \(timeStr)", icon: .sf("clock.arrow.circlepath"))
-            menu.addItem(timeItem)
+            formatter.dateFormat = "HH:mm"
+            refreshTitle += " · \(formatter.string(from: quota.lastUpdated))"
         }
+        // No ⌘ shortcut labels: they reserve an empty right-hand column on every row.
+        let refreshItem = makeItem(refreshTitle, icon: .sf("arrow.clockwise"), action: #selector(fetchData))
+        menu.addItem(refreshItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -535,8 +561,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(launchItem)
 
         // Quit item
-        let quitItem = makeItem("Quit Gemini Quota", icon: .sf("xmark.circle"), action: #selector(quitApp), key: "q")
-        quitItem.keyEquivalentModifierMask = .command
+        let quitItem = makeItem("Quit", icon: .sf("xmark.circle"), action: #selector(quitApp))
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -565,8 +590,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(refreshItem)
 
         menu.addItem(NSMenuItem.separator())
-        let quitItem = makeItem("Quit", icon: .sf("xmark.circle"), action: #selector(quitApp), key: "q")
-        quitItem.keyEquivalentModifierMask = .command
+        let quitItem = makeItem("Quit", icon: .sf("xmark.circle"), action: #selector(quitApp))
         menu.addItem(quitItem)
 
         statusItem.menu = menu
