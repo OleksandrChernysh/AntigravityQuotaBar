@@ -147,7 +147,6 @@ struct StatusSegment {
 
 enum DisplayFormat: Int, CaseIterable {
     case allCompact = 0   // [Gemini] 88% | 96%  [Claude] 100% | 100%  [Gemini] Ar 100%
-    case allWithTime = 1  // [Gemini] 88% (1h) | 96% (6d)  [Claude] 100% (4h) | 100% (6d)  [Gemini] Ar 100% (6d)
     case gemini = 2       // [Gemini] 88% (1h) | 96% (6d)
     case claudeGPT = 3    // [Claude] 100% (4h) | 100% (6d)
     case argon = 4        // [Gemini] Argon 100% (6d)
@@ -156,7 +155,6 @@ enum DisplayFormat: Int, CaseIterable {
     var title: String {
         switch self {
         case .allCompact: return "All, compact"
-        case .allWithTime: return "All, with time"
         case .gemini: return "Gemini"
         case .claudeGPT: return "Claude and GPT Models"
         case .argon: return "Argon"
@@ -178,8 +176,6 @@ enum DisplayFormat: Int, CaseIterable {
         switch self {
         case .allCompact:
             return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: false, argonLabel: "Ar") }
-        case .allWithTime:
-            return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: true, argonLabel: "Ar") }
         case .gemini:
             return only(.gemini)
         case .claudeGPT:
