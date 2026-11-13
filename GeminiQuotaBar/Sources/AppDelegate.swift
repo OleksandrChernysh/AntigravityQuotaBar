@@ -637,8 +637,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Live preview of how this style looks with the current numbers
             if let quota = latestQuota {
                 let segments = fmt.segments(quota: quota)
-                if !segments.isEmpty {
+                // Auto keeps its name (its preview would duplicate another style);
+                // the other styles show only the preview, without a text label.
+                if !segments.isEmpty && fmt != .auto {
                     item.image = renderSegments(segments, height: 16, fontSize: 12)
+                    item.image?.accessibilityDescription = fmt.title
+                    item.title = ""
                     if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
                 }
             }
