@@ -671,7 +671,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         // Info rows have no action; without this AppKit draws them as disabled (faded gray).
         menu.autoenablesItems = false
-        menu.addItem(makeItem("Gemini Quota Bar",
+        menu.addItem(makeItem("AntigravityQuotaBar",
                               icon: .antigravity,
                               attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
         menu.addItem(NSMenuItem.separator())
@@ -726,7 +726,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Launch at Login Helper
     private var launchAgentPlistURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent("Library/LaunchAgents/com.antigravity.geminiquotabar.plist")
+        return home.appendingPathComponent("Library/LaunchAgents/com.antigravity.antigravityquotabar.plist")
     }
 
     func isLaunchAtLoginEnabled() -> Bool {
@@ -740,14 +740,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try? fm.removeItem(at: launchAgentPlistURL)
         } else {
             guard let appBundlePath = Bundle.main.bundlePath as String? else { return }
-            let execPath = (appBundlePath as NSString).appendingPathComponent("Contents/MacOS/GeminiQuotaBar")
+            let execPath = (appBundlePath as NSString).appendingPathComponent("Contents/MacOS/AntigravityQuotaBar")
             let plistContent = """
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             <plist version="1.0">
             <dict>
                 <key>Label</key>
-                <string>com.antigravity.geminiquotabar</string>
+                <string>com.antigravity.antigravityquotabar</string>
                 <key>ProgramArguments</key>
                 <array>
                     <string>\(execPath)</string>

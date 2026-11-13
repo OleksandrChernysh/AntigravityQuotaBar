@@ -3,7 +3,7 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$PROJECT_DIR/build"
-APP_NAME="GeminiQuotaBar.app"
+APP_NAME="AntigravityQuotaBar.app"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME"
 MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
 RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
@@ -26,7 +26,7 @@ swiftc \
     "$PROJECT_DIR/Sources/QuotaAlertManager.swift" \
     "$PROJECT_DIR/Sources/AppDelegate.swift" \
     "$PROJECT_DIR/Sources/main.swift" \
-    -o "$MACOS_DIR/GeminiQuotaBar"
+    -o "$MACOS_DIR/AntigravityQuotaBar"
 
 echo "==> Creating Info.plist..."
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
@@ -35,13 +35,13 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>GeminiQuotaBar</string>
+    <string>AntigravityQuotaBar</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.antigravity.geminiquotabar</string>
+    <string>com.antigravity.antigravityquotabar</string>
     <key>CFBundleName</key>
-    <string>Gemini Quota Bar</string>
+    <string>AntigravityQuotaBar</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
