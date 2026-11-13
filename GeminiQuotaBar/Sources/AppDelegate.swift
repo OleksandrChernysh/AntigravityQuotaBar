@@ -93,128 +93,136 @@ func windowLabel(_ b: ModelBucketInfo) -> String {
     return String(b.displayName.prefix(2))
 }
 
-/// The single most-depleted limit across all model groups.
-func findBottleneck(_ q: GeminiQuota) -> (label: String, percent: Int, resetTime: String)? {
-    var best: (label: String, percent: Int, resetTime: String)?
-    func consider(_ label: String, _ p: Int, _ r: String) {
-        if best == nil || p < best!.percent { best = (label, p, r) }
+/// Which product a server group belongs to.
+enum GroupKind { case gemini, claudeGPT, argon, other }
+
+func groupKind(_ name: String) -> GroupKind {
+    if name.contains("Argon") { return .argon }
+    if name.contains("Gemini") { return .gemini }
+    if name.contains("Claude") || name.contains("GPT") { return .claudeGPT }
+    return .other
+}
+
+/// Groups to show in the menu bar: live groups from the server, or a minimal
+/// set rebuilt from the flat cached fields.
+func statusGroups(_ q: GeminiQuota) -> [ModelGroupInfo] {
+    if !q.allGroups.isEmpty { return q.allGroups }
+    var groups = [ModelGroupInfo(displayName: "Gemini Models", description: "", buckets: [
+        ModelBucketInfo(id: "5h", displayName: "5h Limit", window: "5h",
+                        percent: q.fiveHourPercent, resetTime: q.fiveHourResetTime, description: ""),
+        ModelBucketInfo(id: "weekly", displayName: "Weekly Limit", window: "weekly",
+                        percent: q.weeklyPercent, resetTime: q.weeklyResetTime, description: "")
+    ])]
+    if let a = q.argonWeeklyPercent {
+        groups.append(ModelGroupInfo(displayName: "Gemini 4 Argon", description: "", buckets: [
+            ModelBucketInfo(id: "weekly", displayName: "Argon Weekly Limit", window: "weekly",
+                            percent: a, resetTime: q.argonResetTime ?? "", description: "")
+        ]))
     }
-    if !q.allGroups.isEmpty {
-        for g in q.allGroups {
-            let name = shortGroupName(g.displayName)
-            for b in g.buckets {
-                consider(g.buckets.count > 1 ? "\(name) \(windowLabel(b))" : name, b.percent, b.resetTime)
-            }
-        }
-    } else {
-        // Cached values at launch (no group details yet)
-        consider("Gemini 5h", q.fiveHourPercent, q.fiveHourResetTime)
-        consider("Gemini Wk", q.weeklyPercent, q.weeklyResetTime)
-        if let a = q.argonWeeklyPercent { consider("Argon", a, q.argonResetTime ?? "") }
+    return groups
+}
+
+/// "1h 18m" -> "1h", "6d 20h" -> "6d", "45m" -> "45m".
+func firstUnit(_ countdown: String) -> String {
+    String(countdown.split(separator: " ").first ?? "")
+}
+
+/// Compact value for one group, 5h first then weekly:
+/// "88% | 96%"  or, with time, "88% (1h) | 96% (6d)".
+func compactValue(_ group: ModelGroupInfo, withTime: Bool) -> String {
+    let order: (ModelBucketInfo) -> Int = { b in
+        switch windowLabel(b) { case "5h": return 0; case "Wk": return 1; default: return 2 }
     }
-    return best
+    return group.buckets.sorted { order($0) < order($1) }.map { b in
+        let cd = withTime ? firstUnit(formatShortCountdown(from: b.resetTime)) : ""
+        return "\(b.percent)%" + (cd.isEmpty ? "" : " (\(cd))")
+    }.joined(separator: " | ")
+}
+
+/// One logo + text pair in the menu bar.
+struct StatusSegment {
+    let icon: Icon
+    let text: String
 }
 
 enum DisplayFormat: Int, CaseIterable {
-    case standardWithTime = 0 // [Antigravity] 5h: 78% (1h 28m) · Wk: 38% (2d 2h)
-    case standard = 1         // [Antigravity] 5h: 78% · Wk: 38%
-    case compactWithTime = 2  // [Antigravity] 78% (1h) | 38% (2d)
-    case compact = 3          // [Antigravity] 78% | 38%
-    case icons = 4            // [gauge] 78% · 38% (2d 2h)
-    case weeklyOnly = 5       // [calendar] Wk: 38% · 2d 2h
-    case fiveHourOnly = 6     // [clock] 5h: 78% · 1h 28m
-    case argonOnly = 7        // [Gemini] Argon: 1% · 5d 17h
-    case lowest = 8           // [triangle] Min: 1% (5d 17h)
-    case descriptive = 9      // [Gemini] Gemini: 78% (5h) · 38% (Wk)
-    case bottleneck = 10      // [Antigravity] Argon 1% · 5d17h  (lowest limit across all models)
+    case allCompact = 0   // [Gemini] 88% | 96%  [Claude] 100% | 100%  [Gemini] Ar 100%
+    case allWithTime = 1  // [Gemini] 88% (1h) | 96% (6d)  [Claude] 100% (4h) | 100% (6d)  [Gemini] Ar 100% (6d)
+    case gemini = 2       // [Gemini] 88% (1h) | 96% (6d)
+    case claudeGPT = 3    // [Claude] 100% (4h) | 100% (6d)
+    case argon = 4        // [Gemini] Argon 100% (6d)
 
-    /// Icon shown in the menu bar, to the left of the text.
-    /// The app itself is identified by the Antigravity logo; formats focused on
-    /// a single metric use the SF Symbol that describes that metric.
-    func icon(quota: GeminiQuota?) -> Icon {
+    /// Label used in the "Style" submenu (a live preview image is shown next to it).
+    var title: String {
         switch self {
-        case .icons: return .sf("gauge.with.dots.needle.50percent") // remaining quota = fuel gauge
-        case .weeklyOnly: return .sf("calendar")                     // weekly window
-        case .fiveHourOnly: return .sf("clock")                      // 5-hour window
-        case .argonOnly: return (quota == nil || quota?.argonWeeklyPercent != nil) ? .gemini : .sf("calendar")
-        case .lowest: return .sf("exclamationmark.triangle")         // warning: lowest quota
-        case .descriptive: return .gemini
-        default: return .antigravity
+        case .allCompact: return "All, compact"
+        case .allWithTime: return "All, with time"
+        case .gemini: return "Gemini"
+        case .claudeGPT: return "Claude and GPT Models"
+        case .argon: return "Argon"
         }
     }
 
-    /// Label used in the "Menu Bar Style" submenu.
-    var menuLabel: String {
-        switch self {
-        case .standardWithTime: return "5h: 78% (1h 28m) · Wk: 38% (2d 2h)  — Recommended"
-        case .standard: return "5h: 78% · Wk: 38%  — Percentages only"
-        case .compactWithTime: return "78% (1h) | 38% (2d)  — Compact with time"
-        case .compact: return "78% | 38%  — Compact"
-        case .icons: return "78% · 38% (2d)  — Gauge"
-        case .weeklyOnly: return "Wk: 38% · 2d 2h  — Weekly only"
-        case .fiveHourOnly: return "5h: 78% · 1h 28m  — 5-hour only"
-        case .argonOnly: return "Argon: 1% · 5d 17h  — Gemini 4 Argon"
-        case .lowest: return "Min: 1% (5d 17h)  — Lowest of all"
-        case .descriptive: return "Gemini: 78% (5h) · 38% (Wk)"
-        case .bottleneck: return "Argon 1% · 5d17h  — Bottleneck (lowest of all models)"
+    func segments(quota: GeminiQuota) -> [StatusSegment] {
+        let groups = statusGroups(quota)
+        func segment(_ g: ModelGroupInfo, withTime: Bool, argonLabel: String) -> StatusSegment {
+            let kind = groupKind(g.displayName)
+            let prefix = kind == .argon ? argonLabel + " " : ""
+            return StatusSegment(icon: groupIcon(g.displayName), text: prefix + compactValue(g, withTime: withTime))
         }
-    }
-
-    func format(quota: GeminiQuota) -> String {
-        let fiveHourCd = formatShortCountdown(from: quota.fiveHourResetTime)
-        let weeklyCd = formatShortCountdown(from: quota.weeklyResetTime)
-        let argonCd = formatShortCountdown(from: quota.argonResetTime ?? "")
+        func only(_ kind: GroupKind, argonLabel: String = "Argon") -> [StatusSegment] {
+            groups.filter { groupKind($0.displayName) == kind }
+                  .map { segment($0, withTime: true, argonLabel: argonLabel) }
+        }
 
         switch self {
-        case .standardWithTime:
-            let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
-            let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "5h: \(quota.fiveHourPercent)%\(hStr) · Wk: \(quota.weeklyPercent)%\(wStr)"
-        case .standard:
-            return "5h: \(quota.fiveHourPercent)% · Wk: \(quota.weeklyPercent)%"
-        case .compactWithTime:
-            let hStr = fiveHourCd.isEmpty ? "" : " (\(fiveHourCd))"
-            let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "\(quota.fiveHourPercent)%\(hStr) | \(quota.weeklyPercent)%\(wStr)"
-        case .compact:
-            return "\(quota.fiveHourPercent)% | \(quota.weeklyPercent)%"
-        case .icons:
-            let wStr = weeklyCd.isEmpty ? "" : " (\(weeklyCd))"
-            return "\(quota.fiveHourPercent)% · \(quota.weeklyPercent)%\(wStr)"
-        case .weeklyOnly:
-            let wStr = weeklyCd.isEmpty ? "" : " · \(weeklyCd)"
-            return "Wk: \(quota.weeklyPercent)%\(wStr)"
-        case .fiveHourOnly:
-            let hStr = fiveHourCd.isEmpty ? "" : " · \(fiveHourCd)"
-            return "5h: \(quota.fiveHourPercent)%\(hStr)"
-        case .argonOnly:
-            if let argon = quota.argonWeeklyPercent {
-                let aStr = argonCd.isEmpty ? "" : " · \(argonCd)"
-                return "Argon: \(argon)%\(aStr)"
-            } else {
-                let wStr = weeklyCd.isEmpty ? "" : " · \(weeklyCd)"
-                return "Wk: \(quota.weeklyPercent)%\(wStr)"
-            }
-        case .lowest:
-            var minP = min(quota.fiveHourPercent, quota.weeklyPercent)
-            var cd = (quota.fiveHourPercent <= quota.weeklyPercent) ? fiveHourCd : weeklyCd
-            if let a = quota.argonWeeklyPercent, a < minP {
-                minP = a
-                cd = argonCd
-            }
-            if let c = quota.claudeWeeklyPercent, c < minP {
-                minP = c
-            }
-            let cdStr = cd.isEmpty ? "" : " (\(cd))"
-            return "Min: \(minP)%\(cdStr)"
-        case .descriptive:
-            return "Gemini: \(quota.fiveHourPercent)% (5h) · \(quota.weeklyPercent)% (Wk)"
-        case .bottleneck:
-            guard let b = findBottleneck(quota) else { return "" }
-            let cd = formatShortCountdown(from: b.resetTime).replacingOccurrences(of: " ", with: "")
-            return "\(b.label) \(b.percent)%" + (cd.isEmpty ? "" : " · \(cd)")
+        case .allCompact:
+            return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: false, argonLabel: "Ar") }
+        case .allWithTime:
+            return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: true, argonLabel: "Ar") }
+        case .gemini:
+            return only(.gemini)
+        case .claudeGPT:
+            return only(.claudeGPT)
+        case .argon:
+            return only(.argon)
         }
     }
+}
+
+/// Draws logo + text segments into one template image, so every logo sits next
+/// to its own numbers and the whole thing follows the menu bar's light/dark tint.
+func renderSegments(_ segments: [StatusSegment], height: CGFloat, fontSize: CGFloat = 0) -> NSImage {
+    let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize > 0 ? fontSize : NSFont.systemFontSize, weight: .regular)
+    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black]
+    let iconGap: CGFloat = 4, segmentGap: CGFloat = 10
+
+    let parts: [(NSImage?, NSString, NSSize)] = segments.map { seg in
+        let text = seg.text as NSString
+        return (iconImage(seg.icon, size: font.pointSize - 1), text, text.size(withAttributes: attrs))
+    }
+    var width: CGFloat = 0
+    for (i, (img, _, size)) in parts.enumerated() {
+        if i > 0 { width += segmentGap }
+        if let img = img { width += img.size.width + iconGap }
+        width += ceil(size.width)
+    }
+
+    let image = NSImage(size: NSSize(width: max(width, 1), height: height), flipped: false) { _ in
+        var x: CGFloat = 0
+        for (i, (img, text, size)) in parts.enumerated() {
+            if i > 0 { x += segmentGap }
+            if let img = img {
+                img.draw(in: NSRect(x: x, y: (height - img.size.height) / 2, width: img.size.width, height: img.size.height))
+                x += img.size.width + iconGap
+            }
+            text.draw(at: NSPoint(x: x, y: (height - size.height) / 2), withAttributes: attrs)
+            x += ceil(size.width)
+        }
+        return true
+    }
+    image.isTemplate = true
+    return image
 }
 
 func formatShortCountdown(from isoString: String) -> String {
@@ -291,13 +299,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
     var refreshInterval: TimeInterval = 60.0 // 1 minute default
-    var currentFormat: DisplayFormat = .standardWithTime
+    var currentFormat: DisplayFormat = .allCompact
     var latestQuota: GeminiQuota?
     var isFetching = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Load saved preferences
-        if let savedFormat = UserDefaults.standard.value(forKey: "DisplayFormat") as? Int,
+        if let savedFormat = UserDefaults.standard.value(forKey: "StatusStyle") as? Int,
            let format = DisplayFormat(rawValue: savedFormat) {
             currentFormat = format
         }
@@ -319,6 +327,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let savedArgon = UserDefaults.standard.value(forKey: "LastArgon") as? Int {
                 cached.argonWeeklyPercent = savedArgon
                 cached.argonResetTime = UserDefaults.standard.string(forKey: "LastArgonReset")
+            }
+            if let data = UserDefaults.standard.data(forKey: "LastGroups"),
+               let groups = try? JSONDecoder().decode([ModelGroupInfo].self, from: data) {
+                cached.allGroups = groups
             }
             updateStatusBarTitle(quota: cached)
         } else {
@@ -357,6 +369,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     UserDefaults.standard.setValue(argon, forKey: "LastArgon")
                     UserDefaults.standard.setValue(quota.argonResetTime, forKey: "LastArgonReset")
                 }
+                if let data = try? JSONEncoder().encode(quota.allGroups) {
+                    UserDefaults.standard.set(data, forKey: "LastGroups")
+                }
                 self.updateStatusBarTitle(quota: quota)
                 self.buildMenu()
                 self.startTimer(interval: self.refreshInterval)
@@ -378,7 +393,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateStatusBarTitle(quota: GeminiQuota) {
-        setStatusBar(icon: currentFormat.icon(quota: quota), text: currentFormat.format(quota: quota))
+        let segments = currentFormat.segments(quota: quota)
+        guard !segments.isEmpty, let button = statusItem.button else {
+            setStatusBar(icon: .antigravity, text: "—")
+            return
+        }
+        button.image = renderSegments(segments, height: NSStatusBar.system.thickness)
+        button.title = ""
     }
 
     /// Creates a menu item with an optional icon (SF Symbol or brand logo).
@@ -511,9 +532,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Format submenu
         let formatMenu = NSMenu()
         for fmt in DisplayFormat.allCases {
-            let item = makeItem(fmt.menuLabel,
-                                icon: fmt.icon(quota: nil),
-                                action: #selector(changeFormat(_:)))
+            let item = makeItem(fmt.title, action: #selector(changeFormat(_:)))
+            // Live preview of how this style looks with the current numbers
+            if let quota = latestQuota {
+                let segments = fmt.segments(quota: quota)
+                if !segments.isEmpty {
+                    item.image = renderSegments(segments, height: 16, fontSize: 12)
+                    if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+                }
+            }
             item.tag = fmt.rawValue
             item.state = (fmt == currentFormat) ? .on : .off
             formatMenu.addItem(item)
@@ -599,7 +626,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func changeFormat(_ sender: NSMenuItem) {
         guard let format = DisplayFormat(rawValue: sender.tag) else { return }
         currentFormat = format
-        UserDefaults.standard.setValue(format.rawValue, forKey: "DisplayFormat")
+        UserDefaults.standard.setValue(format.rawValue, forKey: "StatusStyle")
         if let quota = latestQuota {
             updateStatusBarTitle(quota: quota)
         }

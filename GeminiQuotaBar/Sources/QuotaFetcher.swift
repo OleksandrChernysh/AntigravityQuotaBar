@@ -93,7 +93,7 @@ struct QuotaResponseData: Decodable {
     }
 }
 
-struct ModelBucketInfo {
+struct ModelBucketInfo: Codable {
     let id: String
     let displayName: String
     let window: String
@@ -102,7 +102,7 @@ struct ModelBucketInfo {
     let description: String
 }
 
-struct ModelGroupInfo {
+struct ModelGroupInfo: Codable {
     let displayName: String
     let description: String
     var buckets: [ModelBucketInfo]

@@ -13,7 +13,7 @@ Native macOS menu bar (status bar) app that shows, in real time next to your Mac
 - **Ultra-lightweight and native**: Written in Swift with Cocoa / AppKit (no Electron, no heavy dependencies).
 - **Straight to the source**: Dynamically detects the local Antigravity daemons (`agy` or `language_server`) via Connect-RPC in milliseconds, with HTTP/HTTPS and CSRF token support.
 - **Menu bar display**:
-  - `5h: 78% (1h 28m) · Wk: 38% (2d 2h)` next to the Antigravity logo (10 configurable styles, with or without countdown).
+  - 5 styles, each group shown with its own logo: **All, compact** (`✦ 88% | 96%  ✱ 100% | 100%  ✦ Ar 100%`), **All, with time** (`✦ 88% (1h) | 96% (6d) …`), **Gemini**, **Claude and GPT Models**, **Argon**. Values are always `5h | weekly`.
   - Menu bar icons are template images, so they adapt to light/dark mode and the menu bar tint.
 - **Interactive drop-down menu**:
   - Dynamic model grouping: **Google Gemini**, **Claude and GPT**, and **Gemini 4 Argon**.
