@@ -533,10 +533,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         for (gi, (group, name)) in zip(groups, names).enumerated() {
             let models = groupModels(group)
             let logo = padded(logos[gi])
+            let savingsBadge = LocalSavingsManager.shared.savingsBadge(for: group.displayName) ?? ""
             for (i, b) in group.buckets.enumerated() {
                 let cd = formatFullCountdown(from: b.resetTime)
                 let cdShort = cd?.short.replacingOccurrences(of: " ", with: "") ?? ""
-                let title = "\(i == 0 ? name : "")\t\(windowLabel(b))\t\(textBar(b.percent))\t\(b.percent)%\t\(cdShort)"
+                let badge = (i == 0) ? savingsBadge : ""
+                let title = "\(i == 0 ? name : "")\t\(windowLabel(b))\t\(textBar(b.percent))\t\(b.percent)%\t\(cdShort)\(badge)"
 
                 let item = makeItem(title, attributes: attrs)
                 item.image = i == 0 ? logo : blank
@@ -547,6 +549,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if windowLabel(b) == "Wk" {
                     let used = QuotaAlertManager.shared.weeklyUsedToday(for: group.displayName, currentWeeklyPercent: b.percent)
                     if used > 0 { tip.append("Used today: -\(used)%") }
+                }
+                if let savingsTip = LocalSavingsManager.shared.tooltipText(for: group.displayName) {
+                    tip.append(savingsTip)
                 }
                 item.toolTip = tip.joined(separator: "\n")
                 menu.addItem(item)
@@ -655,6 +660,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alertsItem.state = QuotaAlertManager.shared.isEnabled ? .on : .off
         menu.addItem(alertsItem)
 
+        // Local savings toggle (Ollama)
+        if LocalSavingsManager.shared.isOllamaAvailable {
+            let savingsItem = makeItem("Local Savings (Ollama)", icon: .sf("cpu"), action: #selector(toggleLocalSavings(_:)))
+            savingsItem.state = LocalSavingsManager.shared.isEnabled ? .on : .off
+            menu.addItem(savingsItem)
+        }
+
         // Launch at Login
         let launchItem = makeItem("Launch at Login", icon: .sf("power"), action: #selector(toggleLaunchAtLogin(_:)))
         launchItem.state = isLaunchAtLoginEnabled() ? .on : .off
@@ -716,6 +728,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleAlerts(_ sender: NSMenuItem) {
         QuotaAlertManager.shared.isEnabled.toggle()
+        buildMenu()
+    }
+
+    @objc func toggleLocalSavings(_ sender: NSMenuItem) {
+        LocalSavingsManager.shared.isEnabled.toggle()
         buildMenu()
     }
 

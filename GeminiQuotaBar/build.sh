@@ -24,6 +24,7 @@ swiftc \
     "$PROJECT_DIR/Sources/QuotaFetcher.swift" \
     "$PROJECT_DIR/Sources/ModelTracker.swift" \
     "$PROJECT_DIR/Sources/QuotaAlertManager.swift" \
+    "$PROJECT_DIR/Sources/LocalSavingsManager.swift" \
     "$PROJECT_DIR/Sources/AppDelegate.swift" \
     "$PROJECT_DIR/Sources/main.swift" \
     -o "$MACOS_DIR/AntigravityQuotaBar"
