@@ -20,7 +20,10 @@ swiftc \
     -module-cache-path /tmp/module-cache \
     -target arm64-apple-macosx13.0 \
     -framework Cocoa \
+    -framework Network \
+    -framework Security \
     -framework UserNotifications \
+    "$PROJECT_DIR/Sources/AccountManager.swift" \
     "$PROJECT_DIR/Sources/QuotaFetcher.swift" \
     "$PROJECT_DIR/Sources/ModelTracker.swift" \
     "$PROJECT_DIR/Sources/QuotaAlertManager.swift" \
@@ -46,7 +49,7 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
