@@ -23,9 +23,13 @@ Native macOS menu bar app that displays your remaining **Google Antigravity** mo
   - **`✦ Argon 100% (6d)`** — Gemini 4 Argon (`weekly` with short countdown).
   - Each style item (except `Auto`) is rendered directly as a live preview using your current quota numbers, with no extra text labels.
 - **Compact Drop-Down Menu**:
-  - Tab-aligned 5-segment progress bars (`▮▮▮▯▯`), percentages (`5h` and `Wk`), and short reset countdowns (`1h18m`, `6d20h`).
+  - Continuous native vector progress bars with system accent color (`NSColor.controlAccentColor`) and 1% smoothness, with a subtle background track showing total capacity.
   - Hover tooltips with full model lists, exact reset date/time, and today's weekly quota usage (`Used today: -X%`).
   - Displays the currently active Antigravity model (e.g. `Model: Gemini 4 Hydrogen (Medium)`).
+- **Local Model Token Savings (Ollama)**:
+  - Tracks tokens generated locally for free via Ollama models (`qwen2.5-coder:14b`, `qwen2.5:7b`) and displays savings percentage in parentheses (e.g. `(+85% saved)`).
+  - Hover tooltip displays detailed token breakdown (`X local vs Y cloud tokens today`).
+  - Toggleable via **Local Savings (Ollama)** in the menu settings.
 - **Daily Budget & 5-Hour Alerts**:
   - Sends native macOS notifications (`UNUserNotificationCenter`) when any group reaches:
     - **5h limit exhausted** (≤ 5% remaining, once per 5h cycle), or
@@ -48,7 +52,7 @@ Native macOS menu bar app that displays your remaining **Google Antigravity** mo
 ## 🚀 Install
 
 ### Option 1: Download DMG (Recommended)
-1. Download `AntigravityQuotaBar-v1.0.0.dmg` from [Releases](https://github.com/OleksandrChernysh/AntigravityQuotaBar/releases).
+1. Download `AntigravityQuotaBar-v1.1.0.dmg` from [Releases](https://github.com/OleksandrChernysh/AntigravityQuotaBar/releases).
 2. Open the `.dmg` and drag **AntigravityQuotaBar.app** to **Applications**.
 3. Launch **AntigravityQuotaBar** (if macOS Gatekeeper asks on first run, right-click → **Open**).
 
