@@ -919,11 +919,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Toggles: no checkmarks; enabled state is shown via controlAccentColor icon
+        // Toggles: no checkmarks; enabled = normal label color, disabled = dimmed gray
         let alertsOn = QuotaAlertManager.shared.isEnabled
         let alertsItem = makeItem("Alerts (5h & 20% Daily)",
                                   icon: .sf(alertsOn ? "bell.fill" : "bell"),
-                                  symbolColor: alertsOn ? .controlAccentColor : .secondaryLabelColor,
+                                  symbolColor: alertsOn ? nil : .secondaryLabelColor,
                                   action: #selector(toggleAlerts(_:)),
                                   attributes: alertsOn ? nil : [.font: NSFont.menuFont(ofSize: 0), .foregroundColor: NSColor.secondaryLabelColor])
         menu.addItem(alertsItem)
@@ -932,7 +932,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let savingsOn = LocalSavingsManager.shared.isEnabled
             let savingsItem = makeItem("Local Savings (Ollama)",
                                        icon: .sf(savingsOn ? "cpu.fill" : "cpu"),
-                                       symbolColor: savingsOn ? .controlAccentColor : .secondaryLabelColor,
+                                       symbolColor: savingsOn ? nil : .secondaryLabelColor,
                                        action: #selector(toggleLocalSavings(_:)),
                                        attributes: savingsOn ? nil : [.font: NSFont.menuFont(ofSize: 0), .foregroundColor: NSColor.secondaryLabelColor])
             menu.addItem(savingsItem)
@@ -941,7 +941,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let launchOn = isLaunchAtLoginEnabled()
         let launchItem = makeItem("Launch at Login",
                                   icon: .sf("power"),
-                                  symbolColor: launchOn ? .controlAccentColor : .secondaryLabelColor,
+                                  symbolColor: launchOn ? nil : .secondaryLabelColor,
                                   action: #selector(toggleLaunchAtLogin(_:)),
                                   attributes: launchOn ? nil : [.font: NSFont.menuFont(ofSize: 0), .foregroundColor: NSColor.secondaryLabelColor])
         menu.addItem(launchItem)
