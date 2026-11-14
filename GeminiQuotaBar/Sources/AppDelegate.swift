@@ -478,21 +478,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             // 1. Subtle background track line (shows total quota capacity)
             let trackPath = NSBezierPath(roundedRect: NSRect(x: 0, y: trackY, width: width, height: trackH), xRadius: radius, yRadius: radius)
-            NSColor.labelColor.withAlphaComponent(0.20).setFill()
+            NSColor.labelColor.withAlphaComponent(0.18).setFill()
             trackPath.fill()
 
-            // 2. Active filled line (shows remaining quota, where it ends)
+            // 2. System Accent color filled line (matches user's macOS accent preference)
             let pctClamped = CGFloat(max(0, min(100, percent))) / 100.0
             if pctClamped > 0 {
                 let fillW = max(trackH, width * pctClamped)
                 let fillPath = NSBezierPath(roundedRect: NSRect(x: 0, y: trackY, width: fillW, height: trackH), xRadius: radius, yRadius: radius)
-                NSColor.labelColor.setFill()
+                NSColor.controlAccentColor.setFill()
                 fillPath.fill()
             }
 
             return true
         }
-        img.isTemplate = true
+        img.isTemplate = false
 
         let cell = NSTextAttachmentCell(imageCell: img)
         let attachment = NSTextAttachment()
