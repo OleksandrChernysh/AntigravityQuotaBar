@@ -409,6 +409,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Follow active Antigravity App / IDE window and account changes
         AccountManager.shared.onFocusOrAccountsChanged = { [weak self] in
             guard let self = self else { return }
+            ModelTracker.shared.syncToClient(AccountManager.shared.lastActiveClient)
             if let quota = self.activeQuotaForStatusBar() {
                 self.latestQuota = quota
                 self.updateStatusBarTitle(quota: quota)

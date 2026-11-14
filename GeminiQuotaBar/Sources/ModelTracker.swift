@@ -22,6 +22,8 @@ final class ModelTracker {
     private(set) var currentKind: GroupKind?
 
     private var discoveredModels: [String: DiscoveredModelInfo] = [:]
+    private var modelCodeByClient: [String: String] = [:]
+    private let clientModelsDefaultsKey = "ModelCodeByClientV1"
     private var lastModified: Date?
     private var timer: Timer?
 
@@ -31,12 +33,24 @@ final class ModelTracker {
     }
 
     func start() {
+        if let saved = UserDefaults.standard.dictionary(forKey: clientModelsDefaultsKey) as? [String: String] {
+            modelCodeByClient = saved
+        }
         refreshModelCatalog()
         check()
+        syncToClient(AccountManager.shared.lastActiveClient)
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.check()
         }
+    }
+
+    func syncToClient(_ client: ClientKind) {
+        let targetCode = modelCodeByClient[client.rawValue] ?? currentCode ?? readCode()
+        guard let code = targetCode, code != currentCode else { return }
+        currentCode = code
+        resolveCurrentModel()
+        onChange?()
     }
 
     /// Queries `GetAvailableModels` from the running language_server.
@@ -115,12 +129,20 @@ final class ModelTracker {
         let attrs = try? FileManager.default.attributesOfItem(atPath: stateURL.path)
         let modified = attrs?[.modificationDate] as? Date
         guard modified != lastModified || currentCode == nil else { return }
+        let isInitialCheck = (lastModified == nil)
         lastModified = modified
 
-        if let code = readCode(), code != currentCode {
-            currentCode = code
-            resolveCurrentModel()
-            onChange?()
+        if let code = readCode() {
+            let clientKey = AccountManager.shared.lastActiveClient.rawValue
+            if !isInitialCheck || modelCodeByClient[clientKey] == nil {
+                modelCodeByClient[clientKey] = code
+                UserDefaults.standard.set(modelCodeByClient, forKey: clientModelsDefaultsKey)
+            }
+            if code != currentCode && (!isInitialCheck || modelCodeByClient[clientKey] == code) {
+                currentCode = code
+                resolveCurrentModel()
+                onChange?()
+            }
         }
     }
 
