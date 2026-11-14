@@ -468,7 +468,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    /// 5-segment bar, each segment = 20% remaining.
+    /// Native macOS continuous track bar:
+    /// Subtle background line shows total capacity, solid foreground line shows remaining quota.
+    func renderTrackBar(percent: Int, width: CGFloat = 38, height: CGFloat = 13) -> NSAttributedString {
+        let img = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
+            let trackH: CGFloat = 3.0
+            let trackY = (rect.height - trackH) / 2.0
+            let radius = trackH / 2.0
+
+            // 1. Subtle background track line (shows total quota capacity)
+            let trackPath = NSBezierPath(roundedRect: NSRect(x: 0, y: trackY, width: width, height: trackH), xRadius: radius, yRadius: radius)
+            NSColor.labelColor.withAlphaComponent(0.20).setFill()
+            trackPath.fill()
+
+            // 2. Active filled line (shows remaining quota, where it ends)
+            let pctClamped = CGFloat(max(0, min(100, percent))) / 100.0
+            if pctClamped > 0 {
+                let fillW = max(trackH, width * pctClamped)
+                let fillPath = NSBezierPath(roundedRect: NSRect(x: 0, y: trackY, width: fillW, height: trackH), xRadius: radius, yRadius: radius)
+                NSColor.labelColor.setFill()
+                fillPath.fill()
+            }
+
+            return true
+        }
+        img.isTemplate = true
+
+        let cell = NSTextAttachmentCell(imageCell: img)
+        let attachment = NSTextAttachment()
+        attachment.attachmentCell = cell
+        return NSAttributedString(attachment: attachment)
+    }
+
+    /// 5-segment bar fallback (legacy).
     func textBar(_ percent: Int) -> String {
         let filled = max(0, min(5, Int((Double(percent) / 20.0).rounded())))
         return String(repeating: "▮", count: filled) + String(repeating: "▯", count: 5 - filled)
@@ -497,7 +529,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let gap: CGFloat = 6
         let nameW = names.map(w).max() ?? 0
         let winW = max(w("5h"), w("Wk"))
-        let barW = max(w("▮▮▮▮▮"), w("▯▯▯▯▯"))
+        let barW: CGFloat = 38
         let pctW = w("100%")
 
         let winX = nameW + gap
@@ -538,9 +570,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let cd = formatFullCountdown(from: b.resetTime)
                 let cdShort = cd?.short.replacingOccurrences(of: " ", with: "") ?? ""
                 let badge = (i == 0) ? savingsBadge : ""
-                let title = "\(i == 0 ? name : "")\t\(windowLabel(b))\t\(textBar(b.percent))\t\(b.percent)%\t\(cdShort)\(badge)"
 
-                let item = makeItem(title, attributes: attrs)
+                let prefix = "\(i == 0 ? name : "")\t\(windowLabel(b))\t"
+                let suffix = "\t\(b.percent)%\t\(cdShort)\(badge)"
+
+                let fullTitle = NSMutableAttributedString(string: prefix, attributes: attrs)
+                fullTitle.append(renderTrackBar(percent: b.percent, width: barW))
+                fullTitle.append(NSAttributedString(string: suffix, attributes: attrs))
+
+                let item = NSMenuItem()
+                item.attributedTitle = fullTitle
                 item.image = i == 0 ? logo : blank
                 if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
                 var tip = [group.displayName + (models.isEmpty ? "" : " (\(models))")]
