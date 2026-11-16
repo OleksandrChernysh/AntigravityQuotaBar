@@ -4,7 +4,7 @@
 .LSOverride
 
 # Build artifacts
-GeminiQuotaBar/build/
+build/
 *.app/
 *.dSYM/
 
