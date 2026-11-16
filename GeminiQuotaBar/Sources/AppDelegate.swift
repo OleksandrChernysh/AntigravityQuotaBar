@@ -352,11 +352,27 @@ func formatFullCountdown(from isoString: String) -> (short: String, detailed: St
     return (short: short, detailed: detailed, absolute: absolute)
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private struct HighlightState {
+        let normalTitle: NSAttributedString
+        let highlightedTitle: NSAttributedString
+        let normalImage: NSImage?
+        let highlightedImage: NSImage?
+    }
+
     var statusItem: NSStatusItem!
     var timer: Timer?
     var refreshInterval: TimeInterval = 60.0 // 1 minute default
     var currentFormat: DisplayFormat = .allCompact
+    private var highlightStates: [ObjectIdentifier: HighlightState] = [:]
+    private weak var currentlyHighlightedItem: NSMenuItem?
+    var showSavedInTopMenu: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "ShowSavedInTopMenu") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "ShowSavedInTopMenu")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "ShowSavedInTopMenu") }
+    }
     var latestQuota: GeminiQuota?
     var accountQuotas: [String: QuotaFetcher.CloudAccountQuota] = [:]
     var accountErrors: [String: String] = [:]
@@ -524,14 +540,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.title = text.isEmpty ? "" : " " + text
     }
 
+    func withSavedSuffix(_ segments: [StatusSegment]) -> [StatusSegment] {
+        guard showSavedInTopMenu,
+              let badge = LocalSavingsManager.shared.topMenuBadge(),
+              !segments.isEmpty else {
+            return segments
+        }
+        var updated = segments
+        let last = updated[updated.count - 1]
+        updated[updated.count - 1] = StatusSegment(icon: last.icon, text: "\(last.text) | \(badge)")
+        return updated
+    }
+
     func updateStatusBarTitle(quota: GeminiQuota) {
-        let segments = currentFormat.segments(quota: quota)
+        let segments = withSavedSuffix(currentFormat.segments(quota: quota))
         guard !segments.isEmpty, let button = statusItem.button else {
             setStatusBar(icon: .antigravity, text: "—")
             return
         }
         button.image = renderSegments(segments, height: NSStatusBar.system.thickness, prefixBadge: activeBadgeForStatusBar())
         button.title = ""
+    }
+
+    /// Centers and aspect-fits any menu icon into a uniform box so all rows share identical icon-to-text spacing.
+    private func normalizedMenuIcon(_ img: NSImage?, boxSize: NSSize = NSSize(width: 15, height: 15), isTemplate: Bool? = nil) -> NSImage {
+        let canvas = NSImage(size: boxSize, flipped: false) { _ in
+            if let img = img, img.size.width > 0, img.size.height > 0 {
+                let scale = min(1.0, min(boxSize.width / img.size.width, boxSize.height / img.size.height))
+                let drawW = img.size.width * scale
+                let drawH = img.size.height * scale
+                let x = (boxSize.width - drawW) / 2.0
+                let y = (boxSize.height - drawH) / 2.0
+                img.draw(in: NSRect(x: x, y: y, width: drawW, height: drawH))
+            }
+            return true
+        }
+        canvas.isTemplate = isTemplate ?? (img?.isTemplate ?? true)
+        return canvas
     }
 
     /// Creates a menu item with an optional icon (SF Symbol or brand logo).
@@ -545,7 +590,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                   attributes: [NSAttributedString.Key: Any]? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         if let icon = icon {
-            item.image = iconImage(icon, size: symbolSize, color: symbolColor)
+            let raw = iconImage(icon, size: symbolSize, color: symbolColor)
+            item.image = raw.map { normalizedMenuIcon($0) }
             // macOS 27+ hides menu item images by default; opt in explicitly.
             if #available(macOS 27.0, *) {
                 item.preferredImageVisibility = .visible
@@ -560,23 +606,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Native macOS continuous track bar:
     /// Subtle background line shows total capacity, solid foreground line shows remaining quota.
-    func renderTrackBar(percent: Int, width: CGFloat = 38, height: CGFloat = 13) -> NSAttributedString {
+    func renderTrackBar(percent: Int, width: CGFloat = 38, height: CGFloat = 10, highlighted: Bool = false) -> NSAttributedString {
+        let capHeight = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular).capHeight
         let img = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
             let trackH: CGFloat = 3.0
-            let trackY = (rect.height - trackH) / 2.0
+            // NSTextAttachmentCell aligns image bottom to text baseline, so center on font capHeight.
+            let trackY = max(0, min(rect.height - trackH, (capHeight - trackH) / 2.0))
             let radius = trackH / 2.0
 
             // 1. Subtle background track line (shows total quota capacity)
             let trackPath = NSBezierPath(roundedRect: NSRect(x: 0, y: trackY, width: width, height: trackH), xRadius: radius, yRadius: radius)
-            NSColor.labelColor.withAlphaComponent(0.18).setFill()
+            let trackColor = highlighted ? NSColor.white.withAlphaComponent(0.35) : NSColor.labelColor.withAlphaComponent(0.18)
+            trackColor.setFill()
             trackPath.fill()
 
-            // 2. System Accent color filled line (matches user's macOS accent preference)
+            // 2. System Accent color filled line (or white when row is highlighted)
             let pctClamped = CGFloat(max(0, min(100, percent))) / 100.0
             if pctClamped > 0 {
                 let fillW = max(trackH, width * pctClamped)
                 let fillPath = NSBezierPath(roundedRect: NSRect(x: 0, y: trackY, width: fillW, height: trackH), xRadius: radius, yRadius: radius)
-                NSColor.controlAccentColor.setFill()
+                let fillColor = highlighted ? NSColor.white : NSColor.controlAccentColor
+                fillColor.setFill()
                 fillPath.fill()
             }
 
@@ -606,46 +656,63 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return desc
     }
 
+    private struct CompactRowLayout {
+        let font: NSFont
+        let boldFont: NSFont
+        let barW: CGFloat
+        let para: NSParagraphStyle
+
+        init(names: [String], windows: [String]) {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            let boldFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+            func w(_ s: String) -> CGFloat { ceil((s as NSString).size(withAttributes: [.font: boldFont]).width) }
+
+            let gap: CGFloat = 6
+            let nameW = names.map(w).max() ?? 0
+            let winW = windows.map(w).max() ?? 0
+            let barW: CGFloat = 38
+            let pctW = w("100%")
+
+            let winX = nameW + gap
+            let barX = winX + winW + gap
+            let pctRightX = barX + barW + gap + pctW
+            let cdX = pctRightX + gap
+
+            let para = NSMutableParagraphStyle()
+            para.tabStops = [
+                NSTextTab(textAlignment: .left, location: winX),
+                NSTextTab(textAlignment: .left, location: barX),
+                NSTextTab(textAlignment: .right, location: pctRightX),
+                NSTextTab(textAlignment: .left, location: cdX)
+            ]
+            self.font = font
+            self.boldFont = boldFont
+            self.barW = barW
+            self.para = para
+        }
+    }
+
     /// One row per bucket, columns pinned with tab stops so every column
     /// (name, window, bar, percent, countdown) lines up regardless of glyph widths:
     ///   Gemini  5h  ▮▮▮▮▯   78%  1h28m
     ///           Wk  ▮▮▯▯▯   38%  2d2h
     /// Model list and exact reset time are in the row tooltip.
-    func addCompactRows(to menu: NSMenu, groups: [ModelGroupInfo], activeModelKind: GroupKind? = nil) {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        let boldFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        let savedFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        func w(_ s: String) -> CGFloat { ceil((s as NSString).size(withAttributes: [.font: boldFont]).width) }
-
+    private func addCompactRows(to menu: NSMenu, groups: [ModelGroupInfo], activeModelKind: GroupKind? = nil, layout: CompactRowLayout? = nil) {
         let names = groups.map { shortGroupName($0.displayName) }
-        let gap: CGFloat = 6
-        let nameW = names.map(w).max() ?? 0
-        let winW = max(w("5h"), w("Wk"))
-        let barW: CGFloat = 38
-        let pctW = w("100%")
-
-        let winX = nameW + gap
-        let barX = winX + winW + gap
-        let pctRightX = barX + barW + gap + pctW
-        let cdX = pctRightX + gap
-
-        let para = NSMutableParagraphStyle()
-        para.tabStops = [
-            NSTextTab(textAlignment: .left, location: winX),
-            NSTextTab(textAlignment: .left, location: barX),
-            NSTextTab(textAlignment: .right, location: pctRightX),
-            NSTextTab(textAlignment: .left, location: cdX)
-        ]
+        let resolvedLayout = layout ?? CompactRowLayout(names: names, windows: ["5h", "Wk"])
+        let font = resolvedLayout.font
+        let boldFont = resolvedLayout.boldFont
+        let barW = resolvedLayout.barW
+        let para = resolvedLayout.para
         let baseAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: para]
         let boldAttrs: [NSAttributedString.Key: Any] = [.font: boldFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: para]
         let secondaryAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para]
-        let accentBoldAttrs: [NSAttributedString.Key: Any] = [.font: boldFont, .foregroundColor: NSColor.controlAccentColor, .paragraphStyle: para]
-        let savedAttrs: [NSAttributedString.Key: Any] = [.font: savedFont, .foregroundColor: NSColor.controlAccentColor, .paragraphStyle: para]
 
         // Logos padded to one common width so titles stay aligned; continuation rows get a blank of that width.
-        let logos = groups.map { g -> NSImage? in
+        let rawLogos = groups.map { iconImage(groupIcon($0.displayName), size: 13) }
+        let logos = zip(groups, rawLogos).map { (g, img) -> NSImage? in
             let isActiveGroup = (activeModelKind != nil && groupKind(g.displayName) == activeModelKind)
-            guard let img = iconImage(groupIcon(g.displayName), size: 13) else { return nil }
+            guard let img = img else { return nil }
             if isActiveGroup {
                 let tinted = NSImage(size: img.size, flipped: false) { rect in
                     img.draw(in: rect)
@@ -658,44 +725,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return img
         }
-        let logoW = logos.compactMap { $0?.size.width }.max() ?? 0
-        let logoH = logos.compactMap { $0?.size.height }.max() ?? 0
-        func padded(_ img: NSImage?, isTemplate: Bool) -> NSImage {
-            let canvas = NSImage(size: NSSize(width: logoW, height: logoH), flipped: false) { _ in
-                if let img = img {
-                    img.draw(in: NSRect(x: 0, y: (logoH - img.size.height) / 2, width: img.size.width, height: img.size.height))
-                }
-                return true
-            }
-            canvas.isTemplate = isTemplate
-            return canvas
-        }
-        let blank = padded(nil, isTemplate: true)
+        let blank = normalizedMenuIcon(nil, isTemplate: true)
 
         for (gi, (group, name)) in zip(groups, names).enumerated() {
             let models = groupModels(group)
             let isActiveGroup = (activeModelKind != nil && groupKind(group.displayName) == activeModelKind)
-            let logo = padded(logos[gi], isTemplate: !isActiveGroup)
-            let savingsBadge = LocalSavingsManager.shared.savingsBadge(for: group.displayName) ?? ""
+            let logo = normalizedMenuIcon(logos[gi], isTemplate: !isActiveGroup)
+            let highlightedLogo = normalizedMenuIcon(rawLogos[gi], isTemplate: true)
             for (i, b) in group.buckets.enumerated() {
                 let cd = formatFullCountdown(from: b.resetTime)
                 let cdShort = cd?.short.replacingOccurrences(of: " ", with: "") ?? ""
-                let badge = (i == 0) ? savingsBadge : ""
 
-                let fullTitle = NSMutableAttributedString()
-                fullTitle.append(NSAttributedString(string: i == 0 ? name : "", attributes: isActiveGroup ? accentBoldAttrs : baseAttrs))
-                fullTitle.append(NSAttributedString(string: "\t\(windowLabel(b))\t", attributes: secondaryAttrs))
-                fullTitle.append(renderTrackBar(percent: b.percent, width: barW))
-                fullTitle.append(NSAttributedString(string: "\t\(b.percent)%", attributes: boldAttrs))
-                fullTitle.append(NSAttributedString(string: "\t\(cdShort)", attributes: secondaryAttrs))
-                if !badge.isEmpty {
-                    fullTitle.append(NSAttributedString(string: badge, attributes: savedAttrs))
+                func makeRowTitle(highlighted: Bool) -> NSAttributedString {
+                    let s = NSMutableAttributedString()
+                    let nameAttrs = isActiveGroup ? boldAttrs : baseAttrs
+                    s.append(NSAttributedString(string: i == 0 ? name : "", attributes: nameAttrs))
+                    s.append(NSAttributedString(string: "\t\(windowLabel(b))\t", attributes: secondaryAttrs))
+                    s.append(renderTrackBar(percent: b.percent, width: barW, highlighted: highlighted))
+                    s.append(NSAttributedString(string: "\t\(b.percent)%", attributes: boldAttrs))
+                    s.append(NSAttributedString(string: "\t\(cdShort)", attributes: secondaryAttrs))
+                    return s
                 }
 
+                let normalTitle = makeRowTitle(highlighted: false)
+                let highlightedTitle = makeRowTitle(highlighted: true)
+                let normalImg = i == 0 ? logo : blank
+                let highlightedImg = i == 0 ? highlightedLogo : blank
+
                 let item = NSMenuItem()
-                item.attributedTitle = fullTitle
-                item.image = i == 0 ? logo : blank
+                item.attributedTitle = normalTitle
+                item.image = normalImg
                 if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+                highlightStates[ObjectIdentifier(item)] = HighlightState(
+                    normalTitle: normalTitle,
+                    highlightedTitle: highlightedTitle,
+                    normalImage: normalImg,
+                    highlightedImage: highlightedImg
+                )
                 var tip = [group.displayName + (models.isEmpty ? "" : " (\(models))")]
                 if let cd = cd { tip.append("\(b.displayName): resets in \(cd.detailed) (\(cd.absolute))") }
                 else if !b.description.isEmpty { tip.append(b.description) }
@@ -703,12 +769,111 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let used = QuotaAlertManager.shared.weeklyUsedToday(for: group.displayName, currentWeeklyPercent: b.percent)
                     if used > 0 { tip.append("Used today: -\(used)%") }
                 }
-                if let savingsTip = LocalSavingsManager.shared.tooltipText(for: group.displayName) {
-                    tip.append(savingsTip)
-                }
                 item.toolTip = tip.joined(separator: "\n")
                 menu.addItem(item)
             }
+        }
+    }
+
+    /// Appends `(item1 · item2)` with gray parentheses/dots and accent-colored active items (white when highlighted).
+    private func appendBadgeList(
+        _ items: [(text: String, isActive: Bool)],
+        font: NSFont,
+        highlighted: Bool,
+        to target: NSMutableAttributedString
+    ) {
+        guard !items.isEmpty else { return }
+        let grayAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+        target.append(NSAttributedString(string: "(", attributes: grayAttrs))
+        for (idx, entry) in items.enumerated() {
+            if idx > 0 {
+                target.append(NSAttributedString(string: " · ", attributes: grayAttrs))
+            }
+            let color: NSColor = entry.isActive ? (highlighted ? .white : .controlAccentColor) : .secondaryLabelColor
+            target.append(NSAttributedString(string: entry.text, attributes: [.font: font, .foregroundColor: color]))
+        }
+        target.append(NSAttributedString(string: ")", attributes: grayAttrs))
+    }
+
+    /// Separate section showing today's output token savings from local (Mac) and free cloud models.
+    private func addLocalSavingsSection(to menu: NSMenu, layout: CompactRowLayout? = nil) {
+        let mgr = LocalSavingsManager.shared
+        let savings = mgr.currentSavings()
+
+        // Header matching account header style
+        let headerFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+        let providers = mgr.configuredProviders()
+        let providerItems = providers.map { (text: $0, isActive: savings.activeProviders.contains($0)) }
+        let hasActiveProvider = providerItems.contains { $0.isActive }
+
+        func buildHeaderTitle(highlighted: Bool) -> NSAttributedString {
+            let s = NSMutableAttributedString()
+            s.append(NSAttributedString(string: "Local and Free", attributes: [.font: headerFont, .foregroundColor: NSColor.secondaryLabelColor]))
+            if !providerItems.isEmpty {
+                s.append(NSAttributedString(string: "  ·  ", attributes: [.font: headerFont, .foregroundColor: NSColor.secondaryLabelColor]))
+                appendBadgeList(providerItems, font: headerFont, highlighted: highlighted, to: s)
+            }
+            return s
+        }
+
+        let normalHeaderTitle = buildHeaderTitle(highlighted: false)
+        let headerItem = NSMenuItem(title: "Local and Free", action: nil, keyEquivalent: "")
+        headerItem.attributedTitle = normalHeaderTitle
+        headerItem.toolTip = mgr.summaryTooltip(for: savings)
+        if hasActiveProvider {
+            highlightStates[ObjectIdentifier(headerItem)] = HighlightState(
+                normalTitle: normalHeaderTitle,
+                highlightedTitle: buildHeaderTitle(highlighted: true),
+                normalImage: nil,
+                highlightedImage: nil
+            )
+        }
+        menu.addItem(headerItem)
+
+        let rows: [(name: String, icon: Icon, window: String, percent: Int, tokens: Int)] = [
+            ("Mac", .sf("laptopcomputer"), "Day", savings.localPercent, savings.localOutputTokens),
+            ("Cloud", .sf("cloud"), "Day", savings.freeCloudPercent, savings.freeCloudOutputTokens)
+        ]
+
+        let resolvedLayout = layout ?? CompactRowLayout(names: rows.map(\.name), windows: ["5h", "Wk", "Day"])
+        let font = resolvedLayout.font
+        let boldFont = resolvedLayout.boldFont
+        let barW = resolvedLayout.barW
+        let para = resolvedLayout.para
+        let baseAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: para]
+        let boldAttrs: [NSAttributedString.Key: Any] = [.font: boldFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: para]
+        let secondaryAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para]
+
+        let icons = rows.map { iconImage($0.icon, size: 13) }
+
+        let summaryTip = mgr.summaryTooltip(for: savings)
+        for (idx, row) in rows.enumerated() {
+            func makeRowTitle(highlighted: Bool) -> NSAttributedString {
+                let s = NSMutableAttributedString()
+                s.append(NSAttributedString(string: row.name, attributes: baseAttrs))
+                s.append(NSAttributedString(string: "\t\(row.window)\t", attributes: secondaryAttrs))
+                s.append(renderTrackBar(percent: row.percent, width: barW, highlighted: highlighted))
+                s.append(NSAttributedString(string: "\t\(row.percent)%", attributes: boldAttrs))
+                s.append(NSAttributedString(string: "\t\(mgr.formatK(row.tokens))", attributes: secondaryAttrs))
+                return s
+            }
+
+            let normalTitle = makeRowTitle(highlighted: false)
+            let highlightedTitle = makeRowTitle(highlighted: true)
+            let img = normalizedMenuIcon(icons[idx], isTemplate: true)
+
+            let item = NSMenuItem()
+            item.attributedTitle = normalTitle
+            item.image = img
+            if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+            highlightStates[ObjectIdentifier(item)] = HighlightState(
+                normalTitle: normalTitle,
+                highlightedTitle: highlightedTitle,
+                normalImage: img,
+                highlightedImage: img
+            )
+            item.toolTip = summaryTip
+            menu.addItem(item)
         }
     }
 
@@ -740,28 +905,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             metaParts.append("\(crStr) cr")
         }
         let clientKinds = AccountManager.shared.clientBadges(for: account.email)
-        let clientStr = clientKinds.isEmpty ? "" : "[\(clientKinds.map { $0.badge }.joined(separator: "/"))]"
+        let clientItems = clientKinds.map { (text: $0.badge, isActive: isActive) }
 
         let font = isActive
             ? NSFont.systemFont(ofSize: 12, weight: .semibold)
             : NSFont.systemFont(ofSize: 12, weight: .regular)
         let emailColor: NSColor = isActive ? .labelColor : .secondaryLabelColor
         let dotColor: NSColor = isActive ? .controlAccentColor : .secondaryLabelColor
-        let badgeColor: NSColor = isActive ? .controlAccentColor : .secondaryLabelColor
 
-        let attrTitle = NSMutableAttributedString()
-        attrTitle.append(NSAttributedString(string: dot, attributes: [.font: font, .foregroundColor: dotColor]))
-        attrTitle.append(NSAttributedString(string: account.email, attributes: [.font: font, .foregroundColor: emailColor]))
-        if !metaParts.isEmpty {
-            attrTitle.append(NSAttributedString(string: "  ·  " + metaParts.joined(separator: " · "), attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
-        }
-        if !clientStr.isEmpty {
-            attrTitle.append(NSAttributedString(string: "  ·  ", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
-            attrTitle.append(NSAttributedString(string: clientStr, attributes: [.font: font, .foregroundColor: badgeColor]))
+        func buildTitle(highlighted: Bool) -> NSAttributedString {
+            let s = NSMutableAttributedString()
+            let curDotColor = (isActive && highlighted) ? NSColor.white : dotColor
+            s.append(NSAttributedString(string: dot, attributes: [.font: font, .foregroundColor: curDotColor]))
+            s.append(NSAttributedString(string: account.email, attributes: [.font: font, .foregroundColor: emailColor]))
+            if !metaParts.isEmpty {
+                s.append(NSAttributedString(string: "  ·  " + metaParts.joined(separator: " · "), attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
+            }
+            if !clientItems.isEmpty {
+                s.append(NSAttributedString(string: "  ·  ", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
+                appendBadgeList(clientItems, font: font, highlighted: highlighted, to: s)
+            }
+            return s
         }
 
+        let normalTitle = buildTitle(highlighted: false)
         let item = NSMenuItem(title: account.email, action: nil, keyEquivalent: "")
-        item.attributedTitle = attrTitle
+        item.attributedTitle = normalTitle
+        if isActive {
+            highlightStates[ObjectIdentifier(item)] = HighlightState(
+                normalTitle: normalTitle,
+                highlightedTitle: buildTitle(highlighted: true),
+                normalImage: nil,
+                highlightedImage: nil
+            )
+        }
         return item
     }
 
@@ -816,12 +993,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        if let prev = currentlyHighlightedItem,
+           let state = highlightStates[ObjectIdentifier(prev)] {
+            prev.attributedTitle = state.normalTitle
+            prev.image = state.normalImage
+        }
+        currentlyHighlightedItem = item
+        if let item = item,
+           let state = highlightStates[ObjectIdentifier(item)] {
+            item.attributedTitle = state.highlightedTitle
+            item.image = state.highlightedImage
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if let prev = currentlyHighlightedItem,
+           let state = highlightStates[ObjectIdentifier(prev)] {
+            prev.attributedTitle = state.normalTitle
+            prev.image = state.normalImage
+        }
+        currentlyHighlightedItem = nil
+    }
+
     func buildMenu() {
+        highlightStates.removeAll()
+        currentlyHighlightedItem = nil
         let menu = NSMenu()
+        menu.delegate = self
         // Info rows have no action; without this AppKit draws them as disabled (faded gray).
         menu.autoenablesItems = false
 
         let cloudAccounts = AccountManager.shared.accounts
+        let savingsEnabled = LocalSavingsManager.shared.isEnabled
+        var allRowNames: [String] = savingsEnabled ? ["Mac", "Cloud"] : []
+        if !cloudAccounts.isEmpty {
+            for account in cloudAccounts {
+                if let cloud = accountQuotas[account.key] {
+                    allRowNames.append(contentsOf: statusGroups(cloud.quota).map { shortGroupName($0.displayName) })
+                }
+            }
+        } else if let quota = latestQuota {
+            allRowNames.append(contentsOf: statusGroups(quota).map { shortGroupName($0.displayName) })
+        }
+        let allWindows = savingsEnabled ? ["5h", "Wk", "Day"] : ["5h", "Wk"]
+        let rowLayout = CompactRowLayout(names: allRowNames, windows: allWindows)
+
         if !cloudAccounts.isEmpty {
             let activeEmail = AccountManager.shared.activeAccountEmail()?.lowercased()
             let ordered = cloudAccounts.sorted { a, b in
@@ -834,7 +1051,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let cloud = cloud {
                     addCompactRows(to: menu,
                                    groups: statusGroups(cloud.quota),
-                                   activeModelKind: isActive ? ModelTracker.shared.currentKind : nil)
+                                   activeModelKind: isActive ? ModelTracker.shared.currentKind : nil,
+                                   layout: rowLayout)
                 } else if let err = accountErrors[account.key] {
                     menu.addItem(makeItem("Error: \(err)",
                                           icon: .sf("exclamationmark.triangle"),
@@ -847,10 +1065,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else if let quota = latestQuota {
             let groups = statusGroups(quota)
-            addCompactRows(to: menu, groups: groups)
+            addCompactRows(to: menu, groups: groups, layout: rowLayout)
             menu.addItem(NSMenuItem.separator())
         } else {
             menu.addItem(makeItem("Loading quota information…", icon: .sf("hourglass")))
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        if savingsEnabled {
+            addLocalSavingsSection(to: menu, layout: rowLayout)
             menu.addItem(NSMenuItem.separator())
         }
 
@@ -860,7 +1083,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let item = makeItem(fmt.title, action: #selector(changeFormat(_:)))
             // Live preview of how this style looks with the current numbers
             if let quota = latestQuota {
-                let segments = fmt.segments(quota: quota)
+                let segments = withSavedSuffix(fmt.segments(quota: quota))
                 // Auto keeps its name (its preview would duplicate another style);
                 // the other styles show only the preview, without a text label.
                 if !segments.isEmpty && fmt != .auto {
@@ -873,6 +1096,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.tag = fmt.rawValue
             item.state = (fmt == currentFormat) ? .on : .off
             formatMenu.addItem(item)
+        }
+        if LocalSavingsManager.shared.isConfigured {
+            formatMenu.addItem(NSMenuItem.separator())
+            let badgeExample = LocalSavingsManager.shared.topMenuBadge() ?? "(+0%)"
+            let savedTopItem = makeItem("Saved % | \(badgeExample)", action: #selector(toggleShowSavedInTopMenu(_:)))
+            savedTopItem.state = showSavedInTopMenu ? .on : .off
+            formatMenu.addItem(savedTopItem)
         }
 
         let formatSubmenuItem = makeItem("Top Menu Style", icon: .sf("eye"))
@@ -928,9 +1158,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                   attributes: alertsOn ? nil : [.font: NSFont.menuFont(ofSize: 0), .foregroundColor: NSColor.secondaryLabelColor])
         menu.addItem(alertsItem)
 
-        if LocalSavingsManager.shared.isOllamaAvailable {
+        if LocalSavingsManager.shared.isConfigured {
             let savingsOn = LocalSavingsManager.shared.isEnabled
-            let savingsItem = makeItem("Local Savings (Ollama)",
+            let savingsItem = makeItem("Local & Free Savings",
                                        icon: .sf(savingsOn ? "cpu.fill" : "cpu"),
                                        symbolColor: savingsOn ? nil : .secondaryLabelColor,
                                        action: #selector(toggleLocalSavings(_:)),
@@ -957,7 +1187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         // Info rows have no action; without this AppKit draws them as disabled (faded gray).
         menu.autoenablesItems = false
-        menu.addItem(makeItem("AntigravityQuotaBar",
+        menu.addItem(makeItem("Antigravity Quota Bar",
                               icon: .antigravity,
                               attributes: [.font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]))
         menu.addItem(NSMenuItem.separator())
@@ -1047,6 +1277,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleLocalSavings(_ sender: NSMenuItem) {
         LocalSavingsManager.shared.isEnabled.toggle()
+        if let quota = latestQuota {
+            updateStatusBarTitle(quota: quota)
+        }
+        buildMenu()
+    }
+
+    @objc func toggleShowSavedInTopMenu(_ sender: NSMenuItem) {
+        showSavedInTopMenu.toggle()
+        if let quota = latestQuota {
+            updateStatusBarTitle(quota: quota)
+        }
         buildMenu()
     }
 

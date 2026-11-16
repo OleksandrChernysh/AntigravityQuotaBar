@@ -44,12 +44,14 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.antigravity.antigravityquotabar</string>
+    <key>CFBundleDisplayName</key>
+    <string>Antigravity Quota Bar</string>
     <key>CFBundleName</key>
-    <string>AntigravityQuotaBar</string>
+    <string>Antigravity Quota Bar</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.2.1</string>
+    <string>1.2.2</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

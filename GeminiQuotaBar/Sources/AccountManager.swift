@@ -108,7 +108,11 @@ final class AccountManager {
 
     private var oauthListener: NWListener?
     private var workspaceObserver: NSObjectProtocol?
+    private var terminateObserver: NSObjectProtocol?
     private var tokenCache: [String: OAuthTokens] = [:]
+    private let keychainLock = NSLock()
+    private var hasLoadedKeychainBundle = false
+    private let bundleKeychainAccount = "__all_accounts__"
 
     private init() {
         loadPreferences()
@@ -250,6 +254,36 @@ final class AccountManager {
                 if self.focusMode == .auto {
                     self.onFocusOrAccountsChanged?()
                 }
+            }
+        }
+
+        terminateObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self = self,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleId = app.bundleIdentifier else { return }
+            let closedClient: ClientKind?
+            if bundleId == ClientKind.app.bundleIdentifier {
+                closedClient = .app
+            } else if bundleId == ClientKind.ide.bundleIdentifier {
+                closedClient = .ide
+            } else {
+                closedClient = nil
+            }
+            guard let client = closedClient else { return }
+            let hadEntry = (self.clientEmails.removeValue(forKey: client) != nil)
+            if self.lastActiveClient == client {
+                let other: ClientKind = (client == .ide) ? .app : .ide
+                let running = NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier }
+                if running.contains(other.bundleIdentifier) {
+                    self.lastActiveClient = other
+                }
+            }
+            if hadEntry {
+                self.onFocusOrAccountsChanged?()
             }
         }
     }
@@ -396,50 +430,93 @@ final class AccountManager {
 
     // MARK: - Keychain Token Storage
 
-    private func saveTokens(_ tokens: OAuthTokens, for emailKey: String) {
-        tokenCache[emailKey] = tokens
-        guard let data = try? JSONEncoder().encode(tokens) else { return }
+    /// Reads a single Keychain item by account key. Caller must hold `keychainLock`.
+    private func readKeychainData(account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: emailKey
-        ]
-        SecItemDelete(query as CFDictionary)
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        SecItemAdd(addQuery as CFDictionary, nil)
-    }
-
-    func loadTokens(for email: String) -> OAuthTokens? {
-        let key = email.lowercased()
-        if let cached = tokenCache[key] {
-            return cached
-        }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: key,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data,
-              let decoded = try? JSONDecoder().decode(OAuthTokens.self, from: data) else {
-            return nil
-        }
-        tokenCache[key] = decoded
-        return decoded
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return data
     }
 
-    private func deleteTokens(for emailKey: String) {
-        tokenCache.removeValue(forKey: emailKey)
+    /// Writes `tokenCache` into the single consolidated Keychain item. Caller must hold `keychainLock`.
+    private func writeKeychainBundle() {
+        guard let data = try? JSONEncoder().encode(tokenCache) else { return }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: emailKey
+            kSecAttrAccount as String: bundleKeychainAccount
         ]
-        SecItemDelete(query as CFDictionary)
+        let updateAttrs: [String: Any] = [kSecValueData as String: data]
+        let status = SecItemUpdate(query as CFDictionary, updateAttrs as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            SecItemAdd(addQuery as CFDictionary, nil)
+        }
+    }
+
+    /// Loads all tokens from the single consolidated Keychain item (migrating legacy per-email items once if needed).
+    /// Caller must hold `keychainLock`.
+    private func ensureKeychainBundleLoaded() {
+        guard !hasLoadedKeychainBundle else { return }
+        hasLoadedKeychainBundle = true
+
+        if let data = readKeychainData(account: bundleKeychainAccount),
+           let decoded = try? JSONDecoder().decode([String: OAuthTokens].self, from: data) {
+            tokenCache = decoded
+            return
+        }
+
+        // One-time migration from legacy per-email Keychain items into the single bundle.
+        var migrated: [String: OAuthTokens] = [:]
+        for account in accounts {
+            let emailKey = account.key
+            if let data = readKeychainData(account: emailKey),
+               let decoded = try? JSONDecoder().decode(OAuthTokens.self, from: data) {
+                migrated[emailKey] = decoded
+            }
+            let legacyQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: emailKey
+            ]
+            SecItemDelete(legacyQuery as CFDictionary)
+        }
+        if !migrated.isEmpty {
+            tokenCache = migrated
+            writeKeychainBundle()
+        }
+    }
+
+    private func saveTokens(_ tokens: OAuthTokens, for emailKey: String) {
+        keychainLock.lock()
+        defer { keychainLock.unlock() }
+        ensureKeychainBundleLoaded()
+        tokenCache[emailKey] = tokens
+        writeKeychainBundle()
+    }
+
+    func loadTokens(for email: String) -> OAuthTokens? {
+        let key = email.lowercased()
+        keychainLock.lock()
+        defer { keychainLock.unlock() }
+        ensureKeychainBundleLoaded()
+        return tokenCache[key]
+    }
+
+    private func deleteTokens(for emailKey: String) {
+        keychainLock.lock()
+        defer { keychainLock.unlock() }
+        ensureKeychainBundleLoaded()
+        tokenCache.removeValue(forKey: emailKey)
+        writeKeychainBundle()
     }
 
     // MARK: - Token Refresh
@@ -567,7 +644,7 @@ final class AccountManager {
                     let redirectURI = "http://127.0.0.1:\(port)/oauth2callback"
                     self.sendHTTPResponse(
                         connection: connection,
-                        html: "<html><body style='font-family:-apple-system,sans-serif;padding:40px;text-align:center;'><h2>Signed in to AntigravityQuotaBar</h2><p>You can close this tab and return to the menu bar app.</p></body></html>"
+                        html: "<html><body style='font-family:-apple-system,sans-serif;padding:40px;text-align:center;'><h2>Signed in to Antigravity Quota Bar</h2><p>You can close this tab and return to the menu bar app.</p></body></html>"
                     )
                     listener.cancel()
                     self.oauthListener = nil
