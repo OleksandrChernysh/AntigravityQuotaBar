@@ -29,11 +29,49 @@ final class LocalSavingsManager {
     private var cachedData: LocalSavingsData?
     private var lastCalculationTime: Date?
 
-    private let localLogPath = ("~/.gemini/antigravity/local_tokens.jsonl" as NSString).expandingTildeInPath
+    private let primaryLogPath = ("~/.config/savings-bridge/local_tokens.jsonl" as NSString).expandingTildeInPath
+    private let legacyLogPath = ("~/.gemini/antigravity/local_tokens.jsonl" as NSString).expandingTildeInPath
+    private var localLogPath: String {
+        FileManager.default.fileExists(atPath: primaryLogPath) ? primaryLogPath : legacyLogPath
+    }
+    private let secretsEnvPath = ("~/.config/savings-bridge/secrets.env" as NSString).expandingTildeInPath
+    private let modelsConfigPath = ("~/.config/savings-bridge/models.json" as NSString).expandingTildeInPath
     private let bridgeScriptPaths = [
+        ("~/.config/savings-bridge/bin/bridge_backends.py" as NSString).expandingTildeInPath,
+        ("~/.config/savings-bridge/bin/local_bridge.py" as NSString).expandingTildeInPath,
+        ("~/.gemini/bin/bridge_backends.py" as NSString).expandingTildeInPath,
+        ("~/.gemini/bin/local_bridge.py" as NSString).expandingTildeInPath,
         ("~/.gemini/config/plugins-optional/dev-suite/savings-bridge/local_bridge.py" as NSString).expandingTildeInPath,
         ("~/.gemini/config/plugins/dev-suite/savings-bridge/local_bridge.py" as NSString).expandingTildeInPath
     ]
+
+    private static let providerDisplayNames: [String: String] = [
+        "opencode": "OpenCode",
+        "nvidia": "Nvidia",
+        "openrouter": "OpenRouter",
+        "groq": "Groq",
+        "github": "GitHub",
+        "lmstudio": "LM Studio"
+    ]
+
+    private static let secretsEnvProviders: [(envVar: String, name: String)] = [
+        ("NVIDIA_API_KEY", "Nvidia"),
+        ("OPENROUTER_API_KEY", "OpenRouter"),
+        ("GROQ_API_KEY", "Groq"),
+        ("GITHUB_TOKEN", "GitHub")
+    ]
+
+    private func classifyModel(_ rawModel: String) -> (provider: String, isLocal: Bool)? {
+        let model = rawModel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !model.isEmpty else { return nil }
+        if let slash = model.firstIndex(of: "/") {
+            let prefix = String(model[..<slash])
+            guard !prefix.isEmpty else { return nil }
+            let name = Self.providerDisplayNames[prefix] ?? prefix.capitalized
+            return (name, prefix == "lmstudio")
+        }
+        return ("Ollama", true)
+    }
 
     var isEnabled: Bool {
         get {
@@ -48,14 +86,18 @@ final class LocalSavingsManager {
         }
     }
 
-    /// True only when savings tracking is actually configured (log file or bridge script exists).
+    /// True only when savings tracking is actually configured (log file, config, or bridge script exists).
     var isConfigured: Bool {
         let fm = FileManager.default
-        if fm.fileExists(atPath: localLogPath) { return true }
+        if fm.fileExists(atPath: localLogPath)
+            || fm.fileExists(atPath: modelsConfigPath)
+            || fm.fileExists(atPath: secretsEnvPath) {
+            return true
+        }
         return bridgeScriptPaths.contains { fm.fileExists(atPath: $0) }
     }
 
-    /// Providers detected from the savings-bridge script and/or local_tokens.jsonl.
+    /// Providers detected from savings-bridge scripts, secrets/models config, and/or local_tokens.jsonl.
     func configuredProviders() -> [String] {
         var providers: [String] = []
         func add(_ name: String) {
@@ -66,8 +108,25 @@ final class LocalSavingsManager {
             if let script = try? String(contentsOfFile: path, encoding: .utf8) {
                 if script.contains("query_ollama") || script.contains("OLLAMA_API") { add("Ollama") }
                 if script.contains("\"opencode/\"") || script.contains("query_opencode") { add("OpenCode") }
-                if script.contains("\"nvidia/\"") || script.contains("query_nvidia_nim") { add("Nvidia") }
+                if script.contains("query_nvidia_nim") { add("Nvidia") }
                 break
+            }
+        }
+
+        if let secrets = try? String(contentsOfFile: secretsEnvPath, encoding: .utf8) {
+            for entry in Self.secretsEnvProviders where secrets.contains(entry.envVar) {
+                add(entry.name)
+            }
+        }
+
+        if let modelsData = try? Data(contentsOf: URL(fileURLWithPath: modelsConfigPath)),
+           let modelsObj = try? JSONSerialization.jsonObject(with: modelsData) as? [String: Any],
+           let installed = modelsObj["installed"] as? [[String: Any]] {
+            for item in installed {
+                if let prov = item["provider"] as? String {
+                    let lower = prov.lowercased()
+                    add(Self.providerDisplayNames[lower] ?? (lower == "ollama" ? "Ollama" : prov.capitalized))
+                }
             }
         }
 
@@ -75,18 +134,9 @@ final class LocalSavingsManager {
             for line in log.split(separator: "\n") {
                 guard let data = line.data(using: .utf8),
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let model = obj["model"] as? String else { continue }
-                if let slash = model.firstIndex(of: "/") {
-                    let prefix = String(model[..<slash]).lowercased()
-                    switch prefix {
-                    case "opencode": add("OpenCode")
-                    case "nvidia": add("Nvidia")
-                    default:
-                        if !prefix.isEmpty { add(prefix.capitalized) }
-                    }
-                } else if !model.isEmpty {
-                    add("Ollama")
-                }
+                      let model = obj["model"] as? String,
+                      let classified = classifyModel(model) else { continue }
+                add(classified.provider)
             }
         }
 
@@ -146,17 +196,14 @@ final class LocalSavingsManager {
                    let rawOut = obj["output_tokens"] as? NSNumber {
                     let out = rawOut.intValue
                     guard out > 0 else { continue }
-                    let model = ((obj["model"] as? String) ?? "").lowercased()
-                    if model.hasPrefix("opencode/") {
-                        freeCloudOut += out
-                        activeProviders.insert("OpenCode")
-                    } else if model.hasPrefix("nvidia/") {
-                        freeCloudOut += out
-                        activeProviders.insert("Nvidia")
-                    } else {
+                    let model = (obj["model"] as? String) ?? ""
+                    let classified = classifyModel(model) ?? ("Ollama", true)
+                    if classified.isLocal {
                         localOut += out
-                        activeProviders.insert("Ollama")
+                    } else {
+                        freeCloudOut += out
                     }
+                    activeProviders.insert(classified.provider)
                 }
             }
         }
