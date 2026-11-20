@@ -66,9 +66,13 @@ final class ModelTracker {
         guard let server = servers.first else { return }
 
         var candidatePorts: [Int] = []
-        if let p = server.port { candidatePorts.append(p) }
+        if let p = server.port {
+            candidatePorts.append(p)
+        }
         for p in QuotaFetcher.shared.findListeningPorts(pid: server.pid) {
-            if !candidatePorts.contains(p) { candidatePorts.append(p) }
+            if !candidatePorts.contains(p) {
+                candidatePorts.append(p)
+            }
         }
 
         for port in candidatePorts {
@@ -99,17 +103,7 @@ final class ModelTracker {
                         let displayName = (info["displayName"] as? String) ?? k
                         let provider = (info["modelProvider"] as? String) ?? ""
 
-                        let kind: GroupKind
-                        let lower = displayName.lowercased()
-                        if lower.contains("argon") {
-                            kind = .argon
-                        } else if lower.contains("gemini") {
-                            kind = .gemini
-                        } else if lower.contains("claude") || lower.contains("gpt") || provider.contains("ANTHROPIC") || provider.contains("OPENAI") {
-                            kind = .claudeGPT
-                        } else {
-                            kind = .other
-                        }
+                        let kind = Self.classifyGroupKind(displayName: displayName, provider: provider)
                         dict[code] = DiscoveredModelInfo(code: code, displayName: displayName, kind: kind)
                     }
 
@@ -120,7 +114,9 @@ final class ModelTracker {
                 }
                 task.resume()
                 _ = sem.wait(timeout: .now() + 1.5)
-                if !self.discoveredModels.isEmpty { return }
+                if !discoveredModels.isEmpty {
+                    return
+                }
             }
         }
     }
@@ -138,11 +134,25 @@ final class ModelTracker {
                 modelCodeByClient[clientKey] = code
                 UserDefaults.standard.set(modelCodeByClient, forKey: clientModelsDefaultsKey)
             }
-            if code != currentCode && (!isInitialCheck || modelCodeByClient[clientKey] == code) {
+            if code != currentCode, !isInitialCheck || modelCodeByClient[clientKey] == code {
                 currentCode = code
                 resolveCurrentModel()
                 onChange?()
             }
+        }
+    }
+
+    /// Maps a model's display name and provider to its quota `GroupKind`.
+    static func classifyGroupKind(displayName: String, provider: String) -> GroupKind {
+        let lower = displayName.lowercased()
+        if lower.contains("argon") {
+            return .argon
+        } else if lower.contains("gemini") || lower.contains("neon") || provider.contains("GOOGLE") {
+            return .gemini
+        } else if lower.contains("claude") || lower.contains("gpt") || provider.contains("ANTHROPIC") || provider.contains("OPENAI") {
+            return .claudeGPT
+        } else {
+            return .other
         }
     }
 
@@ -156,7 +166,7 @@ final class ModelTracker {
             let lower = code.lowercased()
             if lower.contains("argon") {
                 currentKind = .argon
-            } else if lower.contains("gemini") {
+            } else if lower.contains("gemini") || lower.contains("neon") || lower.contains("hydrogen") {
                 currentKind = .gemini
             } else if lower.contains("claude") || lower.contains("gpt") {
                 currentKind = .claudeGPT
