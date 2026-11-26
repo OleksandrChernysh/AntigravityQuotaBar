@@ -21,10 +21,11 @@ func symbol(_ name: String,
 /// or one or more official brand logos bundled in Contents/Resources (for products).
 enum Icon {
     case sf(String)
-    case brand(String)       // antigravity, gemini, claude, openai
-    case brands([String])    // several logos side by side, e.g. Claude + OpenAI
+    case brand(String) // antigravity, gemini, claude, openai
+    case brands([String]) // several logos side by side, e.g. Claude + OpenAI
 
     static let antigravity = Icon.brand("antigravity")
+    static let appIcon = Icon.brand("app-icon")
     static let gemini = Icon.brand("gemini")
 }
 
@@ -45,11 +46,11 @@ func iconImage(_ icon: Icon, size: CGFloat = 13, weight: NSFont.Weight = .regula
     // than an SF Symbol of the same point size to look optically equal.
     let brandSize = round(size * 1.15)
     switch icon {
-    case .sf(let name):
+    case let .sf(name):
         return symbol(name, nil, size: size, weight: weight, color: color)
-    case .brand(let name):
+    case let .brand(name):
         return brandImage(name, size: brandSize) ?? symbol("questionmark.square.dashed", nil, size: size)
-    case .brands(let names):
+    case let .brands(names):
         let images = names.compactMap { brandImage($0, size: brandSize) }
         guard !images.isEmpty else { return nil }
         let gap: CGFloat = 3
@@ -68,28 +69,46 @@ func iconImage(_ icon: Icon, size: CGFloat = 13, weight: NSFont.Weight = .regula
 /// Icon for a model group returned by the server.
 func groupIcon(_ groupName: String) -> Icon {
     // Gemini 4 Argon is a Gemini model, so it uses the Gemini mark too.
-    if groupName.contains("Gemini") || groupName.contains("Argon") { return .gemini }
+    if groupName.contains("Gemini") || groupName.contains("Argon") {
+        return .gemini
+    }
     let hasClaude = groupName.contains("Claude")
     let hasGPT = groupName.contains("GPT") || groupName.contains("OpenAI")
-    if hasClaude { return .brand("claude") }
-    if hasGPT { return .brand("openai") }
+    if hasClaude {
+        return .brand("claude")
+    }
+    if hasGPT {
+        return .brand("openai")
+    }
     return .antigravity
 }
 
 /// "Gemini Models" -> "Gemini", "Claude and GPT models" -> "Claude", "Gemini 4 Argon" -> "Argon".
 func shortGroupName(_ name: String) -> String {
-    if name.contains("Argon") { return "Argon" }
-    if name.contains("Gemini") { return "Gemini" }
-    if name.contains("Claude") { return "Claude" }
-    if name.contains("GPT") { return "GPT" }
+    if name.contains("Argon") {
+        return "Argon"
+    }
+    if name.contains("Gemini") {
+        return "Gemini"
+    }
+    if name.contains("Claude") {
+        return "Claude"
+    }
+    if name.contains("GPT") {
+        return "GPT"
+    }
     return name.split(separator: " ").first.map(String.init) ?? name
 }
 
 /// "5h" / "Wk" label for a bucket's time window.
 func windowLabel(_ b: ModelBucketInfo) -> String {
     let w = b.window.lowercased(), id = b.id.lowercased(), n = b.displayName.lowercased()
-    if w == "5h" || w.contains("session") || id.contains("5h") || n.contains("5h") || n.contains("five") { return "5h" }
-    if w.contains("week") || id.contains("weekly") || n.contains("week") { return "Wk" }
+    if w == "5h" || w.contains("session") || id.contains("5h") || n.contains("5h") || n.contains("five") {
+        return "5h"
+    }
+    if w.contains("week") || id.contains("weekly") || n.contains("week") {
+        return "Wk"
+    }
     return String(b.displayName.prefix(2))
 }
 
@@ -116,16 +135,24 @@ enum GroupKind: String, CaseIterable {
 }
 
 func groupKind(_ name: String) -> GroupKind {
-    if name.contains("Argon") { return .argon }
-    if name.contains("Gemini") { return .gemini }
-    if name.contains("Claude") || name.contains("GPT") { return .claudeGPT }
+    if name.contains("Argon") {
+        return .argon
+    }
+    if name.contains("Gemini") {
+        return .gemini
+    }
+    if name.contains("Claude") || name.contains("GPT") {
+        return .claudeGPT
+    }
     return .other
 }
 
 /// Groups to show in the menu bar: live groups from the server, or a minimal
 /// set rebuilt from the flat cached fields.
 func statusGroups(_ q: GeminiQuota) -> [ModelGroupInfo] {
-    if !q.allGroups.isEmpty { return q.allGroups }
+    if !q.allGroups.isEmpty {
+        return q.allGroups
+    }
     var groups = [ModelGroupInfo(displayName: "Gemini Models", description: "", buckets: [
         ModelBucketInfo(id: "5h", displayName: "5h Limit", window: "5h",
                         percent: q.fiveHourPercent, resetTime: q.fiveHourResetTime, description: ""),
@@ -165,24 +192,19 @@ struct StatusSegment {
 }
 
 enum DisplayFormat: Int, CaseIterable {
-    case auto = 5         // follows the model selected in the Antigravity App
-    case allCompact = 0   // [Gemini] 88% | 96%  [Claude] 100% | 100%  [Gemini] Ar 100%
-    case gemini = 2       // [Gemini] 88% (1h) | 96% (6d)
-    case claudeGPT = 3    // [Claude] 100% (4h) | 100% (6d)
-    case argon = 4        // [Gemini] Argon 100% (6d)
+    case auto = 5 // follows the model selected in the Antigravity App
+    case iconOnly = 6 // [Antigravity] monochrome app icon only
 
-    /// Label used in the "Style" submenu (a live preview image is shown next to it).
+    /// Label used in the "Style" submenu.
     var title: String {
         switch self {
         case .auto: return "Auto (current model)"
-        case .allCompact: return "All, compact"
-        case .gemini: return "Gemini"
-        case .claudeGPT: return "Claude and GPT Models"
-        case .argon: return "Argon"
+        case .iconOnly: return "Icon only"
         }
     }
 
     func segments(quota: GeminiQuota) -> [StatusSegment] {
+        guard self == .auto else { return [] }
         let groups = statusGroups(quota)
         func segment(_ g: ModelGroupInfo, withTime: Bool, argonLabel: String) -> StatusSegment {
             let kind = groupKind(g.displayName)
@@ -191,33 +213,24 @@ enum DisplayFormat: Int, CaseIterable {
         }
         func only(_ kind: GroupKind, argonLabel: String = "Argon") -> [StatusSegment] {
             groups.filter { groupKind($0.displayName) == kind }
-                  .map { segment($0, withTime: true, argonLabel: argonLabel) }
+                .map { segment($0, withTime: true, argonLabel: argonLabel) }
         }
 
-        switch self {
-        case .auto:
-            // Model selected in the App -> its group's style; unknown -> All, compact.
-            let target: DisplayFormat?
-            switch ModelTracker.shared.currentKind {
-            case .gemini: target = .gemini
-            case .claudeGPT: target = .claudeGPT
-            case .argon: target = .argon
-            default: target = nil
-            }
-            if let t = target {
-                let segs = t.segments(quota: quota)
-                if !segs.isEmpty { return segs }
-            }
-            return DisplayFormat.allCompact.segments(quota: quota)
-        case .allCompact:
-            return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: false, argonLabel: "Ar") }
-        case .gemini:
-            return only(.gemini)
-        case .claudeGPT:
-            return only(.claudeGPT)
-        case .argon:
-            return only(.argon)
+        // Model selected in the App -> its group's style; unknown -> All, compact.
+        let target: GroupKind?
+        switch ModelTracker.shared.currentKind {
+        case .gemini: target = .gemini
+        case .claudeGPT: target = .claudeGPT
+        case .argon: target = .argon
+        default: target = nil
         }
+        if let kind = target {
+            let segs = only(kind)
+            if !segs.isEmpty {
+                return segs
+            }
+        }
+        return groups.filter { !$0.buckets.isEmpty }.map { segment($0, withTime: false, argonLabel: "Ar") }
     }
 }
 
@@ -228,7 +241,7 @@ func renderSegments(_ segments: [StatusSegment], height: CGFloat, fontSize: CGFl
     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black]
     let iconGap: CGFloat = 4, segmentGap: CGFloat = 10
 
-    var badgeSize: NSSize? = nil
+    var badgeSize: NSSize?
     var badgeStrSize: NSSize = .zero
     let badgeFont = NSFont.systemFont(ofSize: max(9, font.pointSize - 3), weight: .semibold)
     let badgeAttrs: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: NSColor.black]
@@ -247,8 +260,12 @@ func renderSegments(_ segments: [StatusSegment], height: CGFloat, fontSize: CGFl
         width += bSize.width + badgeGap
     }
     for (i, (img, _, size)) in parts.enumerated() {
-        if i > 0 { width += segmentGap }
-        if let img = img { width += img.size.width + iconGap }
+        if i > 0 {
+            width += segmentGap
+        }
+        if let img = img {
+            width += img.size.width + iconGap
+        }
         width += ceil(size.width)
     }
 
@@ -268,7 +285,9 @@ func renderSegments(_ segments: [StatusSegment], height: CGFloat, fontSize: CGFl
             x += bSize.width + badgeGap
         }
         for (i, (img, text, size)) in parts.enumerated() {
-            if i > 0 { x += segmentGap }
+            if i > 0 {
+                x += segmentGap
+            }
             if let img = img {
                 img.draw(in: NSRect(x: x, y: (height - img.size.height) / 2, width: img.size.width, height: img.size.height))
                 x += img.size.width + iconGap
@@ -294,7 +313,9 @@ func formatShortCountdown(from isoString: String) -> String {
     guard let targetDate = date else { return "" }
 
     let diff = targetDate.timeIntervalSince(Date())
-    if diff <= 0 { return "0h" }
+    if diff <= 0 {
+        return "0h"
+    }
 
     let totalMinutes = Int(diff) / 60
     let days = totalMinutes / (24 * 60)
@@ -363,22 +384,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var timer: Timer?
     var refreshInterval: TimeInterval = 60.0 // 1 minute default
-    var currentFormat: DisplayFormat = .allCompact
+    var currentFormat: DisplayFormat = .auto
     private var highlightStates: [ObjectIdentifier: HighlightState] = [:]
     private weak var currentlyHighlightedItem: NSMenuItem?
     var showSavedInTopMenu: Bool {
         get {
-            if UserDefaults.standard.object(forKey: "ShowSavedInTopMenu") == nil { return true }
+            if UserDefaults.standard.object(forKey: "ShowSavedInTopMenu") == nil {
+                return true
+            }
             return UserDefaults.standard.bool(forKey: "ShowSavedInTopMenu")
         }
         set { UserDefaults.standard.set(newValue, forKey: "ShowSavedInTopMenu") }
     }
+
     var latestQuota: GeminiQuota?
     var accountQuotas: [String: QuotaFetcher.CloudAccountQuota] = [:]
     var accountErrors: [String: String] = [:]
     var isFetching = false
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         // Load saved preferences
         if let savedFormat = UserDefaults.standard.value(forKey: "StatusStyle") as? Int,
            let format = DisplayFormat(rawValue: savedFormat) {
@@ -409,7 +433,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             updateStatusBarTitle(quota: cached)
         } else {
-            setStatusBar(icon: .antigravity, text: "Connecting…")
+            setStatusBar(icon: currentFormat == .iconOnly ? .appIcon : .antigravity, text: currentFormat == .iconOnly ? "" : "Connecting…")
         }
 
         QuotaAlertManager.shared.setup()
@@ -417,7 +441,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Follow the model selected in the Antigravity App (for the Auto style)
         ModelTracker.shared.onChange = { [weak self] in
             guard let self = self, let quota = self.activeQuotaForStatusBar() else { return }
-            if self.currentFormat == .auto { self.updateStatusBarTitle(quota: quota) }
+            if self.currentFormat == .auto {
+                self.updateStatusBarTitle(quota: quota)
+            }
             self.buildMenu()
         }
         ModelTracker.shared.start()
@@ -458,7 +484,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func activeBadgeForStatusBar() -> String? {
         guard AccountManager.shared.showBadgeInMenuBar,
               !AccountManager.shared.accounts.isEmpty,
-              let email = AccountManager.shared.activeAccountEmail() else {
+              let email = AccountManager.shared.activeAccountEmail()
+        else {
             return nil
         }
         return AccountManager.shared.shortBadge(for: email)
@@ -478,10 +505,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                 for (key, res) in results {
                     switch res {
-                    case .success(let cq):
+                    case let .success(cq):
                         self.accountQuotas[key] = cq
                         self.accountErrors.removeValue(forKey: key)
-                    case .failure(let err):
+                    case let .failure(err):
                         self.accountErrors[key] = err.localizedDescription
                     }
                 }
@@ -502,16 +529,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self = self else { return }
             self.isFetching = false
             switch result {
-            case .success(let quota):
+            case let .success(quota):
                 self.latestQuota = quota
                 QuotaAlertManager.shared.evaluate(quota: quota)
                 self.cacheQuota(quota)
                 self.updateStatusBarTitle(quota: quota)
                 self.buildMenu()
                 self.startTimer(interval: self.refreshInterval)
-            case .failure(let error):
+            case let .failure(error):
                 if self.latestQuota == nil {
-                    self.setStatusBar(icon: .antigravity, text: "Waiting for IDE…")
+                    self.setStatusBar(icon: self.currentFormat == .iconOnly ? .appIcon : .antigravity, text: self.currentFormat == .iconOnly ? "" : "Waiting for IDE…")
                     self.buildErrorMenu(error: error.localizedDescription)
                 }
                 self.startTimer(interval: 5.0)
@@ -543,7 +570,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func withSavedSuffix(_ segments: [StatusSegment]) -> [StatusSegment] {
         guard showSavedInTopMenu,
               let badge = LocalSavingsManager.shared.topMenuBadge(),
-              !segments.isEmpty else {
+              !segments.isEmpty
+        else {
             return segments
         }
         var updated = segments
@@ -553,6 +581,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func updateStatusBarTitle(quota: GeminiQuota) {
+        if currentFormat == .iconOnly {
+            setStatusBar(icon: .appIcon, text: "")
+            return
+        }
         let segments = withSavedSuffix(currentFormat.segments(quota: quota))
         guard !segments.isEmpty, let button = statusItem.button else {
             setStatusBar(icon: .antigravity, text: "—")
@@ -665,7 +697,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         init(names: [String], windows: [String]) {
             let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
             let boldFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-            func w(_ s: String) -> CGFloat { ceil((s as NSString).size(withAttributes: [.font: boldFont]).width) }
+            func w(_ s: String) -> CGFloat {
+                ceil((s as NSString).size(withAttributes: [.font: boldFont]).width)
+            }
 
             let gap: CGFloat = 6
             let nameW = names.map(w).max() ?? 0
@@ -710,7 +744,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Logos padded to one common width so titles stay aligned; continuation rows get a blank of that width.
         let rawLogos = groups.map { iconImage(groupIcon($0.displayName), size: 13) }
-        let logos = zip(groups, rawLogos).map { (g, img) -> NSImage? in
+        let logos = zip(groups, rawLogos).map { g, img -> NSImage? in
             let isActiveGroup = (activeModelKind != nil && groupKind(g.displayName) == activeModelKind)
             guard let img = img else { return nil }
             if isActiveGroup {
@@ -755,7 +789,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let item = NSMenuItem()
                 item.attributedTitle = normalTitle
                 item.image = normalImg
-                if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+                if #available(macOS 27.0, *) {
+                    item.preferredImageVisibility = .visible
+                }
                 highlightStates[ObjectIdentifier(item)] = HighlightState(
                     normalTitle: normalTitle,
                     highlightedTitle: highlightedTitle,
@@ -763,11 +799,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     highlightedImage: highlightedImg
                 )
                 var tip = [group.displayName + (models.isEmpty ? "" : " (\(models))")]
-                if let cd = cd { tip.append("\(b.displayName): resets in \(cd.detailed) (\(cd.absolute))") }
-                else if !b.description.isEmpty { tip.append(b.description) }
+                if let cd = cd {
+                    tip.append("\(b.displayName): resets in \(cd.detailed) (\(cd.absolute))")
+                } else if !b.description.isEmpty {
+                    tip.append(b.description)
+                }
                 if windowLabel(b) == "Wk" {
                     let used = QuotaAlertManager.shared.weeklyUsedToday(for: group.displayName, currentWeeklyPercent: b.percent)
-                    if used > 0 { tip.append("Used today: -\(used)%") }
+                    if used > 0 {
+                        tip.append("Used today: -\(used)%")
+                    }
                 }
                 item.toolTip = tip.joined(separator: "\n")
                 menu.addItem(item)
@@ -865,7 +906,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let item = NSMenuItem()
             item.attributedTitle = normalTitle
             item.image = img
-            if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+            if #available(macOS 27.0, *) {
+                item.preferredImageVisibility = .visible
+            }
             highlightStates[ObjectIdentifier(item)] = HighlightState(
                 normalTitle: normalTitle,
                 highlightedTitle: highlightedTitle,
@@ -897,7 +940,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let tier = cloud?.subscriptionTier ?? account.subscriptionTier
         let credits = cloud?.credits ?? account.credits
         var metaParts: [String] = []
-        if let tier = tier, !tier.isEmpty { metaParts.append(tier) }
+        if let tier = tier, !tier.isEmpty {
+            metaParts.append(tier)
+        }
         if let credits = credits {
             let fmt = NumberFormatter()
             fmt.numberStyle = .decimal
@@ -953,7 +998,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for acc in mgr.accounts {
             let item = makeItem("Pin: \(acc.email)", action: #selector(selectFocusPinned(_:)))
             item.representedObject = acc.email
-            if case .pinned(let pinned) = mgr.focusMode, pinned.lowercased() == acc.key {
+            if case let .pinned(pinned) = mgr.focusMode, pinned.lowercased() == acc.key {
                 item.state = .on
             } else {
                 item.state = .off
@@ -985,7 +1030,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch mgr.focusMode {
         case .auto:
             focusValue = mgr.accounts.isEmpty ? "Add Account" : "Auto (\(mgr.lastActiveClient.badge))"
-        case .pinned(let email):
+        case let .pinned(email):
             focusValue = email.split(separator: "@").first.map(String.init) ?? email
         }
         let item = makeItem("Focus: \(focusValue)", icon: .sf("person.crop.circle"))
@@ -993,7 +1038,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+    func menu(_: NSMenu, willHighlight item: NSMenuItem?) {
         if let prev = currentlyHighlightedItem,
            let state = highlightStates[ObjectIdentifier(prev)] {
             prev.attributedTitle = state.normalTitle
@@ -1007,7 +1052,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    func menuDidClose(_ menu: NSMenu) {
+    func menuDidClose(_: NSMenu) {
         if let prev = currentlyHighlightedItem,
            let state = highlightStates[ObjectIdentifier(prev)] {
             prev.attributedTitle = state.normalTitle
@@ -1079,31 +1124,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Format submenu ("Top Menu Style")
         let formatMenu = NSMenu()
-        for fmt in DisplayFormat.allCases {
-            let item = makeItem(fmt.title, action: #selector(changeFormat(_:)))
-            // Live preview of how this style looks with the current numbers
-            if let quota = latestQuota {
-                let segments = withSavedSuffix(fmt.segments(quota: quota))
-                // Auto keeps its name (its preview would duplicate another style);
-                // the other styles show only the preview, without a text label.
-                if !segments.isEmpty && fmt != .auto {
-                    item.image = renderSegments(segments, height: 16, fontSize: 12)
-                    item.image?.accessibilityDescription = fmt.title
-                    item.title = ""
-                    if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
-                }
-            }
-            item.tag = fmt.rawValue
-            item.state = (fmt == currentFormat) ? .on : .off
-            formatMenu.addItem(item)
-        }
+        let autoItem = makeItem(DisplayFormat.auto.title, action: #selector(changeFormat(_:)))
+        autoItem.tag = DisplayFormat.auto.rawValue
+        autoItem.state = (currentFormat == .auto) ? .on : .off
+        formatMenu.addItem(autoItem)
+
         if LocalSavingsManager.shared.isConfigured {
-            formatMenu.addItem(NSMenuItem.separator())
             let badgeExample = LocalSavingsManager.shared.topMenuBadge() ?? "(+0%)"
             let savedTopItem = makeItem("Saved % | \(badgeExample)", action: #selector(toggleShowSavedInTopMenu(_:)))
             savedTopItem.state = showSavedInTopMenu ? .on : .off
             formatMenu.addItem(savedTopItem)
         }
+
+        formatMenu.addItem(NSMenuItem.separator())
+
+        let iconOnlyItem = makeItem(DisplayFormat.iconOnly.title, icon: .appIcon, action: #selector(changeFormat(_:)))
+        iconOnlyItem.tag = DisplayFormat.iconOnly.rawValue
+        iconOnlyItem.state = (currentFormat == .iconOnly) ? .on : .off
+        formatMenu.addItem(iconOnlyItem)
 
         let formatSubmenuItem = makeItem("Top Menu Style", icon: .sf("eye"))
         formatSubmenuItem.submenu = formatMenu
@@ -1232,7 +1270,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             switch result {
             case .success:
                 self.fetchData()
-            case .failure(let error):
+            case let .failure(error):
                 let alert = NSAlert()
                 alert.messageText = "Google Sign-In Failed"
                 alert.informativeText = error.localizedDescription
@@ -1258,6 +1296,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.setValue(format.rawValue, forKey: "StatusStyle")
         if let quota = latestQuota {
             updateStatusBarTitle(quota: quota)
+        } else if format == .iconOnly {
+            setStatusBar(icon: .appIcon, text: "")
         }
         buildMenu()
     }
@@ -1270,12 +1310,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         buildMenu()
     }
 
-    @objc func toggleAlerts(_ sender: NSMenuItem) {
+    @objc func toggleAlerts(_: NSMenuItem) {
         QuotaAlertManager.shared.isEnabled.toggle()
         buildMenu()
     }
 
-    @objc func toggleLocalSavings(_ sender: NSMenuItem) {
+    @objc func toggleLocalSavings(_: NSMenuItem) {
         LocalSavingsManager.shared.isEnabled.toggle()
         if let quota = latestQuota {
             updateStatusBarTitle(quota: quota)
@@ -1283,7 +1323,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         buildMenu()
     }
 
-    @objc func toggleShowSavedInTopMenu(_ sender: NSMenuItem) {
+    @objc func toggleShowSavedInTopMenu(_: NSMenuItem) {
         showSavedInTopMenu.toggle()
         if let quota = latestQuota {
             updateStatusBarTitle(quota: quota)
@@ -1296,6 +1336,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: - Launch at Login Helper
+
     private var launchAgentPlistURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent("Library/LaunchAgents/com.antigravity.antigravityquotabar.plist")
@@ -1305,7 +1346,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return FileManager.default.fileExists(atPath: launchAgentPlistURL.path)
     }
 
-    @objc func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+    @objc func toggleLaunchAtLogin(_: NSMenuItem) {
         let enabled = isLaunchAtLoginEnabled()
         let fm = FileManager.default
         if enabled {
